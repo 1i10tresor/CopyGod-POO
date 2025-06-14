@@ -3,9 +3,10 @@ from info import Infos
 import dotenv
 import os
 import re
-import ast
+import json
+
 class chatGpt():
-    def __init__(self,signal):
+    def __init__(self, signal):
         dotenv.load_dotenv()
         self.gpt_key = os.getenv("GPT_KEY")
         self.signal = signal
@@ -49,21 +50,24 @@ class chatGpt():
             """
 
     def get_signal(self):
-        try :
+        try:
             openai.api_key = self.gpt_key
             response = openai.ChatCompletion.create(
                 model="gpt-4-turbo",
                 messages=[{"role": "user", "content": self.prompt}],
                 timeout=30
             )
+            return self.signal_cleaner(response)
         except Exception as e:
             return e
-        return self.signal_cleaner(response)
     
+    @staticmethod
     def signal_cleaner(response):
         try:
             match = re.search(r'\{.*?\}', response.choices[0].message.content, re.DOTALL)
-            signal = ast.literal_eval(match.group(0)) if match else None
-            return signal
+            if match:
+                signal = json.loads(match.group(0))
+                return signal
+            return None
         except Exception as e:
             return e
