@@ -63,7 +63,7 @@ class RiskManager:
         """
         return self.total_risk_eur
     
-    def validate_lot_size(self, lot_size, min_lot=0.01, max_lot=100):
+    def validate_lot_size(self, lot_size, min_lot=0.01, max_lot=1):
         """
         Valide que la taille de lot est dans les limites acceptables.
         
