@@ -2,10 +2,12 @@ import time
 import threading
 from datetime import datetime
 from main import TradingBot
+from config import telegram_config
+from simulatedSignals import SimulatedSignal, SignalLibrary
 
 class MessageListener:
     """
-    Écouteur de messages pour les canaux de trading.
+    Écouteur de messages pour les canaux de trading Telegram.
     Surveille les nouveaux messages et déclenche le traitement automatique.
     """
     
@@ -20,15 +22,17 @@ class MessageListener:
         self.is_listening = False
         self.listener_thread = None
         
-        # Configuration des canaux surveillés
+        # Configuration des canaux surveillés avec IDs Telegram
         self.monitored_channels = {
             1: {
                 'name': 'Canal Standard',
+                'telegram_id': telegram_config.get_channel_id(1),
                 'last_message_id': None,
                 'message_count': 0
             },
             2: {
                 'name': 'Canal Fourchette',
+                'telegram_id': telegram_config.get_channel_id(2),
                 'last_message_id': None,
                 'message_count': 0
             }
@@ -50,7 +54,9 @@ class MessageListener:
         self.listener_thread.start()
         
         print("🎧 Écouteur de messages démarré")
-        print(f"📡 Surveillance des canaux: {list(self.monitored_channels.keys())}")
+        print("📡 Canaux surveillés:")
+        for channel_id, info in self.monitored_channels.items():
+            print(f"   Canal {channel_id}: {info['name']} (TG: {info['telegram_id']})")
     
     def stop_listening(self):
         """
@@ -91,7 +97,7 @@ class MessageListener:
     
     def _check_channel_for_new_messages(self, channel_id):
         """
-        Vérifie s'il y a de nouveaux messages dans un canal.
+        Vérifie s'il y a de nouveaux messages dans un canal Telegram.
         
         Args:
             channel_id (int): ID du canal à vérifier
@@ -99,44 +105,68 @@ class MessageListener:
         Returns:
             list: Liste des nouveaux messages
         """
-        # SIMULATION - Dans un vrai système, ceci se connecterait à l'API du canal
-        # (Discord, Telegram, etc.)
+        # TODO: Implémenter la vraie connexion Telegram
+        # Pour l'instant, on utilise la simulation pour les tests
         
-        # Pour la démonstration, on simule des messages
-        if hasattr(self, '_demo_messages'):
-            return self._get_demo_messages(channel_id)
+        # Dans un vrai système, ceci se connecterait à l'API Telegram:
+        # telegram_id = self.monitored_channels[channel_id]['telegram_id']
+        # messages = telegram_client.get_new_messages(telegram_id)
         
         return []
     
-    def _get_demo_messages(self, channel_id):
+    def simulate_message(self, channel_id, message_content=None, author="TestUser"):
         """
-        Génère des messages de démonstration pour tester le système.
+        Simule l'arrivée d'un nouveau message pour les tests.
+        
+        Args:
+            channel_id (int): ID du canal
+            message_content (str): Contenu du message (signal aléatoire si None)
+            author (str): Auteur du message
         """
-        demo_messages = {
-            1: [
-                {
-                    'id': 'msg_001',
-                    'content': 'XAUUSD BUY NOW @ 2329.79\nSL @ 2314.90\nTP1 @ 2350.00\nTP2 @ 2375.00\nTP3 @ 2403.50',
-                    'timestamp': datetime.now().isoformat(),
-                    'author': 'TradingSignals'
-                }
-            ],
-            2: [
-                {
-                    'id': 'msg_002',
-                    'content': 'go sell 3349-52\ntp 3330\nsl 54.5',
-                    'timestamp': datetime.now().isoformat(),
-                    'author': 'ForexSignals'
-                }
-            ]
+        if channel_id not in self.monitored_channels:
+            print(f"❌ Canal {channel_id} non surveillé")
+            return
+        
+        # Si pas de contenu spécifié, utiliser un signal de la bibliothèque
+        if message_content is None:
+            if channel_id == 1:
+                signal = SignalLibrary.get_signal('xauusd_buy', channel_id)
+            else:
+                signal = SignalLibrary.get_signal('xauusd_sell_fourchette', channel_id)
+            
+            if signal:
+                message_content = signal.text
+            else:
+                print(f"❌ Impossible de générer un signal pour le canal {channel_id}")
+                return
+        
+        # Créer un message simulé
+        simulated_message = {
+            'id': f'sim_{int(time.time())}_{channel_id}',
+            'content': message_content,
+            'timestamp': datetime.now().isoformat(),
+            'author': author,
+            'channel_id': channel_id,
+            'telegram_id': self.monitored_channels[channel_id]['telegram_id']
         }
         
-        # Retourner les messages de démonstration une seule fois
-        if channel_id in demo_messages and not hasattr(self, f'_demo_sent_{channel_id}'):
-            setattr(self, f'_demo_sent_{channel_id}', True)
-            return demo_messages[channel_id]
+        print(f"🧪 Simulation d'un message dans le Canal {channel_id}")
+        self._process_new_message(simulated_message, channel_id)
+    
+    def simulate_signal_from_library(self, signal_name):
+        """
+        Simule un signal depuis la bibliothèque.
         
-        return []
+        Args:
+            signal_name (str): Nom du signal dans la bibliothèque
+        """
+        signal = SignalLibrary.get_signal(signal_name)
+        if not signal:
+            print(f"❌ Signal '{signal_name}' non trouvé")
+            return
+        
+        message = signal.to_message_format()
+        self._process_new_message(message, signal.channel_id)
     
     def _process_new_message(self, message, channel_id):
         """
@@ -149,9 +179,11 @@ class MessageListener:
         try:
             message_content = message['content']
             message_id = message['id']
+            telegram_id = message.get('telegram_id', 'N/A')
             
             print(f"\n🆕 Nouveau message détecté dans le Canal {channel_id}")
             print(f"📝 ID: {message_id}")
+            print(f"📡 Telegram ID: {telegram_id}")
             print(f"👤 Auteur: {message.get('author', 'Inconnu')}")
             print(f"⏰ Timestamp: {message.get('timestamp', 'N/A')}")
             print(f"💬 Contenu:\n{message_content}")
@@ -172,7 +204,7 @@ class MessageListener:
             
             print(f"✅ Signal détecté! Lancement du traitement...")
             
-            # Traiter le signal avec le bot
+            # Traiter le signal avec le bot (CHANNEL_ID OBLIGATOIRE)
             result = self.bot.process_signal(message_content, channel_id)
             
             # Enregistrer le message traité
@@ -180,6 +212,7 @@ class MessageListener:
                 'message_id': message_id,
                 'channel_id': channel_id,
                 'channel_name': self.monitored_channels[channel_id]['name'],
+                'telegram_id': telegram_id,
                 'content': message_content,
                 'timestamp': message.get('timestamp'),
                 'author': message.get('author'),
@@ -199,30 +232,6 @@ class MessageListener:
                 
         except Exception as e:
             print(f"❌ Erreur lors du traitement du message: {e}")
-    
-    def simulate_message(self, channel_id, message_content, author="TestUser"):
-        """
-        Simule l'arrivée d'un nouveau message pour les tests.
-        
-        Args:
-            channel_id (int): ID du canal
-            message_content (str): Contenu du message
-            author (str): Auteur du message
-        """
-        if channel_id not in self.monitored_channels:
-            print(f"❌ Canal {channel_id} non surveillé")
-            return
-        
-        # Créer un message simulé
-        simulated_message = {
-            'id': f'sim_{int(time.time())}_{channel_id}',
-            'content': message_content,
-            'timestamp': datetime.now().isoformat(),
-            'author': author
-        }
-        
-        print(f"🧪 Simulation d'un message dans le Canal {channel_id}")
-        self._process_new_message(simulated_message, channel_id)
     
     def get_listener_status(self):
         """
@@ -251,6 +260,7 @@ class MessageListener:
         print("\nCanaux surveillés:")
         for channel_id, info in status['monitored_channels'].items():
             print(f"  📡 Canal {channel_id} ({info['name']}): {info['message_count']} messages")
+            print(f"      Telegram ID: {info['telegram_id']}")
             if info['last_message_id']:
                 print(f"      Dernier message: {info['last_message_id']}")
         
@@ -258,7 +268,7 @@ class MessageListener:
             print(f"\nDerniers messages traités:")
             for record in self.processed_messages[-5:]:  # 5 derniers
                 status_icon = "✅" if record['processing_result'] else "❌"
-                print(f"  {status_icon} Canal {record['channel_id']} - {record['orders_placed']} ordres - {record['processed_at']}")
+                print(f"  {status_icon} Canal {record['channel_id']} (TG: {record['telegram_id']}) - {record['orders_placed']} ordres - {record['processed_at']}")
         
         print("=" * 80 + "\n")
 
@@ -268,7 +278,7 @@ class TradingSystem:
     Système de trading complet avec écouteur de messages intégré.
     """
     
-    def __init__(self, total_risk_eur=300.0, max_risk_percentage=7.0):
+    def __init__(self, total_risk_eur=None, max_risk_percentage=None):
         """
         Initialise le système de trading complet.
         """
@@ -282,6 +292,9 @@ class TradingSystem:
         """
         print("🚀 Démarrage du système de trading complet...")
         
+        # Afficher les configurations
+        telegram_config.display_config()
+        
         # Afficher les informations sur les canaux
         self.bot.display_channel_info()
         
@@ -293,7 +306,7 @@ class TradingSystem:
         
         self.is_running = True
         print("✅ Système de trading démarré avec succès!")
-        print("💡 Le système surveille maintenant les canaux et traite automatiquement les signaux.")
+        print("💡 Le système surveille maintenant les canaux Telegram et traite automatiquement les signaux.")
     
     def stop_system(self):
         """
@@ -309,6 +322,32 @@ class TradingSystem:
         
         self.is_running = False
         print("✅ Système de trading arrêté")
+    
+    def run_demo(self):
+        """
+        Lance une démonstration avec des signaux simulés.
+        """
+        print("\n🧪 DÉMONSTRATION - Simulation de signaux...")
+        
+        # Lister les signaux disponibles
+        SignalLibrary.list_signals()
+        
+        # Simuler différents signaux
+        demo_signals = [
+            'xauusd_buy',
+            'xauusd_sell_fourchette',
+            'eurusd_buy',
+            'eurusd_buy_fourchette',
+            'xauusd_buy_open'
+        ]
+        
+        for signal_name in demo_signals:
+            print(f"\n🎯 Test du signal: {signal_name}")
+            self.listener.simulate_signal_from_library(signal_name)
+            time.sleep(2)  # Pause entre les signaux
+        
+        # Afficher le résumé final
+        self.display_full_summary()
     
     def get_system_status(self):
         """
@@ -347,38 +386,14 @@ class TradingSystem:
 # Exemple d'utilisation du système complet
 if __name__ == "__main__":
     # Créer le système complet
-    system = TradingSystem(total_risk_eur=300.0, max_risk_percentage=7.0)
+    system = TradingSystem()
     
     try:
         # Démarrer le système
         system.start_system()
         
-        # Simuler quelques messages pour la démonstration
-        print("\n🧪 DÉMONSTRATION - Simulation de messages...")
-        
-        # Message Canal 1
-        signal_1 = """EURUSD BUY NOW @ 1.0850
-SL @ 1.0800
-TP1 @ 1.0900
-TP2 @ 1.0950
-TP3 @ 1.1000"""
-        
-        system.listener.simulate_message(1, signal_1, "SignalProvider1")
-        
-        time.sleep(3)
-        
-        # Message Canal 2
-        signal_2 = """go sell 1850-55
-tp 1830
-sl 65"""
-        
-        system.listener.simulate_message(2, signal_2, "SignalProvider2")
-        
-        # Attendre un peu pour voir les résultats
-        time.sleep(5)
-        
-        # Afficher le résumé final
-        system.display_full_summary()
+        # Lancer la démonstration
+        system.run_demo()
         
         # Garder le système en vie pour la démonstration
         print("💡 Système en cours d'exécution... Appuyez sur Ctrl+C pour arrêter")

@@ -1,9 +1,10 @@
 from signalPaser import SignalProcessor
 from riskManager import RiskManager
 from order import SendOrder
+from config import telegram_config, trading_config
 
 class TradingBot:
-    def __init__(self, total_risk_eur, max_risk_percentage=7.0):
+    def __init__(self, total_risk_eur=None, max_risk_percentage=None):
         """
         Initialise le bot de trading.
         
@@ -11,32 +12,38 @@ class TradingBot:
             total_risk_eur (float): Risque total en EUR pour un signal (3 positions)
             max_risk_percentage (float): Pourcentage maximum du capital à risquer
         """
-        self.risk_manager = RiskManager(total_risk_eur, max_risk_percentage)
+        # Utiliser la configuration ou les paramètres fournis
+        self.total_risk_eur = total_risk_eur or trading_config.TOTAL_RISK_EUR
+        self.max_risk_percentage = max_risk_percentage or trading_config.MAX_RISK_PERCENTAGE
+        
+        self.risk_manager = RiskManager(self.total_risk_eur, self.max_risk_percentage)
         self.order_sender = SendOrder()
         self.processed_signals = []
         self.supported_channels = [1, 2]
         
-        # Configuration des canaux
+        # Configuration des canaux avec IDs Telegram
         self.channel_config = {
             1: {
                 'name': 'Canal Standard',
                 'description': '3 TPs différents, même entrée',
-                'format': 'SYMBOL DIRECTION @ ENTRY, SL @ XX, TP1 @ XX, TP2 @ XX, TP3 @ XX'
+                'format': 'SYMBOL DIRECTION @ ENTRY, SL @ XX, TP1 @ XX, TP2 @ XX, TP3 @ XX',
+                'telegram_id': telegram_config.get_channel_id(1)
             },
             2: {
                 'name': 'Canal Fourchette', 
                 'description': '3 entrées différentes, RR fixes',
-                'format': 'DIRECTION XXXX-XX, TP XXXX, SL XX'
+                'format': 'DIRECTION XXXX-XX, TP XXXX, SL XX',
+                'telegram_id': telegram_config.get_channel_id(2)
             }
         }
     
-    def process_signal(self, signal_text, channel_id=1):
+    def process_signal(self, signal_text, channel_id):
         """
         Traite un signal de trading complet selon le canal spécifié.
         
         Args:
             signal_text (str): Texte du signal à traiter
-            channel_id (int): ID du canal (1 ou 2) - DOIT ÊTRE SPÉCIFIÉ
+            channel_id (int): ID du canal (1 ou 2) - OBLIGATOIRE
         
         Returns:
             list: Liste des ordres placés ou None si échec
@@ -101,6 +108,7 @@ class TradingBot:
             signal_record = {
                 'channel_id': channel_id,
                 'channel_name': self.channel_config[channel_id]['name'],
+                'telegram_id': self.channel_config[channel_id]['telegram_id'],
                 'signals': signals,
                 'lot_sizes': lot_sizes,
                 'orders': order_results,
@@ -118,72 +126,6 @@ class TradingBot:
         
         return order_results
     
-    def auto_detect_channel(self, signal_text):
-        """
-        Tente de détecter automatiquement le canal basé sur le format du signal.
-        
-        Args:
-            signal_text (str): Texte du signal
-            
-        Returns:
-            int: ID du canal détecté (1 ou 2) ou None si indéterminé
-        """
-        import re
-        
-        # Patterns pour détecter le canal 2 (fourchettes)
-        fourchette_patterns = [
-            r'\d{4}-\d{1,2}',  # Format 3349-52
-            r'go\s+(buy|sell)\s+\d{4}-\d{1,2}',  # "go sell 3349-52"
-            r'(buy|sell)\s+\d{4}-\d{1,2}',  # "sell 3349-52"
-        ]
-        
-        # Patterns pour détecter le canal 1 (format standard)
-        canal_1_patterns = [
-            r'tp1.*tp2.*tp3',  # Présence de TP1, TP2, TP3
-            r'@.*sl.*@.*tp.*@',  # Format avec @ multiples
-            r'(buy|sell)\s+(now|market)\s*@',  # "BUY NOW @"
-        ]
-        
-        signal_lower = signal_text.lower()
-        
-        # Vérifier les patterns du canal 2
-        for pattern in fourchette_patterns:
-            if re.search(pattern, signal_lower):
-                print(f"🔍 Canal 2 détecté (pattern: fourchette)")
-                return 2
-        
-        # Vérifier les patterns du canal 1
-        for pattern in canal_1_patterns:
-            if re.search(pattern, signal_lower):
-                print(f"🔍 Canal 1 détecté (pattern: standard)")
-                return 1
-        
-        print("⚠️  Canal non détecté automatiquement")
-        return None
-    
-    def process_signal_auto(self, signal_text):
-        """
-        Traite un signal en détectant automatiquement le canal.
-        
-        Args:
-            signal_text (str): Texte du signal à traiter
-            
-        Returns:
-            list: Liste des ordres placés ou None si échec
-        """
-        # Tentative de détection automatique
-        detected_channel = self.auto_detect_channel(signal_text)
-        
-        if detected_channel:
-            print(f"🎯 Canal {detected_channel} détecté automatiquement")
-            return self.process_signal(signal_text, detected_channel)
-        else:
-            print("❌ Impossible de détecter le canal automatiquement")
-            print("💡 Veuillez spécifier le canal manuellement:")
-            print("   - Canal 1: Format standard avec TP1, TP2, TP3")
-            print("   - Canal 2: Format fourchette (ex: 3349-52)")
-            return None
-    
     def display_channel_info(self):
         """
         Affiche les informations sur les canaux supportés.
@@ -196,11 +138,11 @@ class TradingBot:
             print(f"\n📡 CANAL {channel_id} - {config['name']}")
             print(f"   Description: {config['description']}")
             print(f"   Format: {config['format']}")
+            print(f"   Telegram ID: {config['telegram_id']}")
         
         print("\n" + "=" * 80)
         print("UTILISATION:")
-        print("  bot.process_signal(signal_text, channel_id=1)  # Canal spécifique")
-        print("  bot.process_signal_auto(signal_text)           # Détection automatique")
+        print("  bot.process_signal(signal_text, channel_id=1)  # Canal spécifique OBLIGATOIRE")
         print("=" * 80 + "\n")
     
     def get_account_summary(self):
@@ -238,8 +180,9 @@ class TradingBot:
             for i, signal_record in enumerate(self.processed_signals, 1):
                 channel = signal_record['channel_id']
                 channel_name = signal_record['channel_name']
+                telegram_id = signal_record['telegram_id']
                 orders_count = len(signal_record['orders'])
-                print(f"  {i}. {channel_name} (Canal {channel}) - {orders_count} ordres - {signal_record['timestamp']}")
+                print(f"  {i}. {channel_name} (Canal {channel}, TG: {telegram_id}) - {orders_count} ordres - {signal_record['timestamp']}")
         
         print("=" * 80 + "\n")
     
@@ -252,9 +195,8 @@ class TradingBot:
 
 # Exemple d'utilisation
 if __name__ == "__main__":
-    # Initialiser le bot avec un risque total de 300 EUR par signal
-    # et une limite de risque de 7% du capital
-    bot = TradingBot(total_risk_eur=300.0, max_risk_percentage=7.0)
+    # Initialiser le bot avec la configuration
+    bot = TradingBot()
     
     try:
         # Afficher les informations sur les canaux
@@ -263,7 +205,7 @@ if __name__ == "__main__":
         # Afficher le résumé initial du compte
         bot.get_account_summary()
         
-        # Exemple de signal du canal 1 (SPÉCIFIÉ MANUELLEMENT)
+        # Exemple de signal du canal 1 (ID OBLIGATOIRE)
         signal_canal_1 = """
         XAUUSD BUY NOW @ 2329.79
         SL @ 2314.90
@@ -272,27 +214,18 @@ if __name__ == "__main__":
         TP3 @ 2403.50
         """
         
-        print("🚀 Traitement du signal Canal 1 (spécifié manuellement)...")
+        print("🚀 Traitement du signal Canal 1...")
         result_1 = bot.process_signal(signal_canal_1, channel_id=1)
         
-        # Exemple de signal du canal 2 (SPÉCIFIÉ MANUELLEMENT)
+        # Exemple de signal du canal 2 (ID OBLIGATOIRE)
         signal_canal_2 = """
         go sell 3349-52
         tp 3330
         sl 54.5
         """
         
-        print("\n🚀 Traitement du signal Canal 2 (spécifié manuellement)...")
+        print("\n🚀 Traitement du signal Canal 2...")
         result_2 = bot.process_signal(signal_canal_2, channel_id=2)
-        
-        # Exemple avec détection automatique
-        print("\n🤖 Test de détection automatique...")
-        
-        signal_auto_1 = "EURUSD BUY NOW @ 1.0850, SL @ 1.0800, TP1 @ 1.0900, TP2 @ 1.0950, TP3 @ 1.1000"
-        result_auto_1 = bot.process_signal_auto(signal_auto_1)
-        
-        signal_auto_2 = "go buy 1850-55, tp 1870, sl 45"
-        result_auto_2 = bot.process_signal_auto(signal_auto_2)
         
         # Afficher le résumé final
         bot.get_account_summary()
