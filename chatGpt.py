@@ -26,6 +26,40 @@ class chatGpt():
             - "short"/"vente" → "SELL"
             - Convertir "k"/"M" (ex: "50k" → 50000)
             - "NOW" ou "MARKET" → prix d'entrée immédiate
+
+            ## GESTION SPÉCIALE CANAL 2 - FOURCHETTES ET SL ABRÉGÉS :
+            
+            ### Format fourchette (ex: "3349-52") :
+            - "3349-52" signifie de 3349 à 3352
+            - Générer 3 prix d'entrée : [prix_bas, prix_milieu, prix_haut]
+            - Exemple : "3349-52" → [3349, 3350.5, 3352]
+            
+            ### SL abrégé (ex: "sl 54.5" quand prix = "3349-52") :
+            - Prendre les chiffres avant le tiret comme base : "3349-52" → base = "33"
+            - SL "54.5" → "3354.5"
+            - Si SL < 100, ajouter les centaines de la base
+            - Si SL ≥ 100, utiliser tel quel
+            
+            ### Exemples de transformation :
+            
+            #### Exemple 1 :
+            Signal : "go sell 3349-52, tp 3330, sl 54.5"
+            → entry_prices: [3349, 3350.5, 3352]
+            → sl: 3354.5 (33 + 54.5)
+            → tp: 3330
+            
+            #### Exemple 2 :
+            Signal : "buy 1850-55, tp 1870, sl 45"
+            → entry_prices: [1850, 1852.5, 1855]
+            → sl: 1845 (18 + 45)
+            → tp: 1870
+            
+            #### Exemple 3 :
+            Signal : "sell 2100-10, tp 2080, sl 115"
+            → entry_prices: [2100, 2105, 2110]
+            → sl: 2115 (utiliser tel quel car ≥ 100)
+            → tp: 2080
+
             5. Gestion spéciale :
             - Si TP3 = "open" → marquer comme "open"
             - Détecter plusieurs prix d'entrée pour le canal 2
@@ -41,7 +75,16 @@ class chatGpt():
             "tps": [2350.00, 2375.00, 2403.50]
             }}
 
-            ### Canal 2 (3 entrées) :
+            ### Canal 2 (3 entrées avec fourchette) :
+            {{
+            "symbol": "XAUUSD",
+            "sens": "SELL",
+            "entry_prices": [3349, 3350.5, 3352],
+            "sl": 3354.5,
+            "tps": [3330]
+            }}
+
+            ### Canal 2 (3 entrées normales) :
             {{
             "symbol": "EURUSD",
             "sens": "SELL",
@@ -60,6 +103,7 @@ class chatGpt():
             - Stop loss : "SL", "stop", "stop-loss"
             - Take profit : "TP", "target", "take-profit"
             - Entrée : "Entry", "Buy at", "Sell at", "NOW", "@"
+            - Fourchettes : "3349-52", "1850-55", "2100-10"
 
             Résultat JSON :
             """
