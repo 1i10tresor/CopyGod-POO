@@ -5,12 +5,15 @@ import re
 import json
 
 class chatGpt():
-    def __init__(self, signal):
+    def __init__(self, signal, channel_id=1):
         dotenv.load_dotenv()
         self.gpt_key = os.getenv("GPT_KEY")
         self.signal = signal
+        self.channel_id = channel_id
         self.prompt = f"""
             Analyse le message de trading suivant et extrais les informations essentielles au format JSON strict.
+            
+            CANAL SPÉCIFIÉ: {channel_id}
 
             ## Consignes :
             1. Format de sortie : Uniquement du JSON valide, sans texte supplémentaire

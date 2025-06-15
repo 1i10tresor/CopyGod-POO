@@ -27,17 +27,8 @@ class SignalProcessor:
         """
         Extrait et valide le signal selon le type de canal.
         """
-        # Pré-traitement pour les formats spéciaux du canal 2
-        if self.channel_id == 2:
-            processed_text = self._preprocess_canal_2_format(self.signal_text)
-            # Créer un signal temporaire avec le texte traité
-            class TempSignal:
-                def __init__(self, text):
-                    self.text = text
-            temp_signal = TempSignal(processed_text)
-            signal = chatGpt(temp_signal.text).get_signal()
-        else:
-            signal = chatGpt(self.signal_text).get_signal()
+        # Passer l'ID du canal à ChatGPT pour qu'il sache quel format traiter
+        signal = chatGpt(self.signal_text, self.channel_id).get_signal()
         
         if not signal:
             return None
@@ -49,52 +40,6 @@ class SignalProcessor:
         else:
             print(f"Canal {self.channel_id} non supporté")
             return None
-    
-    def _preprocess_canal_2_format(self, text):
-        """
-        Pré-traite les formats spéciaux du canal 2 (fourchettes et SL abrégés).
-        """
-        try:
-            # Rechercher les patterns de fourchette (ex: "3349-52")
-            fourchette_pattern = r'(\d{4})-(\d{1,2})'
-            fourchette_match = re.search(fourchette_pattern, text)
-            
-            if fourchette_match:
-                prix_bas = int(fourchette_match.group(1))  # ex: 3349
-                fin_prix = fourchette_match.group(2)       # ex: "52"
-                
-                # Construire le prix haut
-                # Prendre les premiers chiffres du prix bas et ajouter la fin
-                base_str = str(prix_bas)[:len(base_str) - len(fin_prix)]
-                prix_haut = int(base_str + fin_prix)       # ex: 3352
-                
-                # Calculer le prix milieu
-                prix_milieu = (prix_bas + prix_haut) / 2   # ex: 3350.5
-                
-                # Remplacer la fourchette par les 3 prix d'entrée
-                entry_prices_text = f"entry_prices: [{prix_bas}, {prix_milieu}, {prix_haut}]"
-                text = re.sub(fourchette_pattern, entry_prices_text, text)
-                
-                # Traiter le SL abrégé si présent
-                sl_pattern = r'sl\s*(\d{1,3}(?:\.\d+)?)'
-                sl_match = re.search(sl_pattern, text, re.IGNORECASE)
-                
-                if sl_match:
-                    sl_value = float(sl_match.group(1))
-                    
-                    if sl_value < 100:
-                        # SL abrégé : utiliser la base du prix pour compléter
-                        base_centaines = str(prix_bas)[:2]  # ex: "33" de 3349
-                        sl_complet = float(base_centaines + str(sl_value))  # ex: 3354.5
-                        
-                        # Remplacer le SL dans le texte
-                        text = re.sub(sl_pattern, f'sl {sl_complet}', text, flags=re.IGNORECASE)
-            
-            return text
-            
-        except Exception as e:
-            print(f"Erreur lors du pré-traitement canal 2: {e}")
-            return text
     
     def _process_channel_1(self, signal):
         """
