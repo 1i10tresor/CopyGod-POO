@@ -1,5 +1,4 @@
 import openai
-from info import Infos
 import dotenv
 import os
 import re
@@ -16,24 +15,39 @@ class chatGpt():
             ## Consignes :
             1. Format de sortie : Uniquement du JSON valide, sans texte supplémentaire
             2. Champs obligatoires :
-            - symbol (en majuscules, ex: "BTCUSDT"). Il doit correspondre au symbole d'une paire de trading, ex: XAUUSD, BTCUSD, EURUSD
+            - symbol (en majuscules, ex: "BTCUSDT", "XAUUSD"). Il doit correspondre au symbole d'une paire de trading
             - sens ("BUY" ou "SELL")
-            - entry_price (nombre)
+            - entry_price (nombre) ou entry_prices (tableau pour plusieurs entrées)
             - sl (nombre)
-            - tps (tableau, même avec un seul TP)
+            - tps (tableau, toujours 3 éléments pour le canal 1)
             3. Si information manquante : utiliser `null`
             4. Normalisation :
             - "long"/"achat" → "BUY"
             - "short"/"vente" → "SELL"
             - Convertir "k"/"M" (ex: "50k" → 50000)
+            - "NOW" ou "MARKET" → prix d'entrée immédiate
+            5. Gestion spéciale :
+            - Si TP3 = "open" → marquer comme "open"
+            - Détecter plusieurs prix d'entrée pour le canal 2
 
-            ## Exemple de sortie :
+            ## Exemples de sortie :
+
+            ### Canal 1 (3 TPs) :
             {{
-            "symbol": "ETHUSDT",
+            "symbol": "XAUUSD",
+            "sens": "BUY",
+            "entry_price": 2329.79,
+            "sl": 2314.90,
+            "tps": [2350.00, 2375.00, 2403.50]
+            }}
+
+            ### Canal 2 (3 entrées) :
+            {{
+            "symbol": "EURUSD",
             "sens": "SELL",
-            "entry_price": 3421.50,
-            "sl": 3450.00,
-            "tps": [3400.00, 3380.00]
+            "entry_prices": [1.0850, 1.0860, 1.0870],
+            "sl": 1.0900,
+            "tps": []
             }}
 
             ## Message à analyser :
@@ -42,9 +56,10 @@ class chatGpt():
             \"\"\"
 
             ## Variantes acceptées :
-            - Symboles : "BTC/USDT" → "BTCUSDT"
+            - Symboles : "BTC/USDT" → "BTCUSDT", "XAU/USD" → "XAUUSD"
             - Stop loss : "SL", "stop", "stop-loss"
             - Take profit : "TP", "target", "take-profit"
+            - Entrée : "Entry", "Buy at", "Sell at", "NOW", "@"
 
             Résultat JSON :
             """
@@ -59,15 +74,19 @@ class chatGpt():
             )
             return self.signal_cleaner(response)
         except Exception as e:
-            return e
+            print(f"Erreur ChatGPT: {e}")
+            return None
     
     @staticmethod
     def signal_cleaner(response):
         try:
-            match = re.search(r'\{.*?\}', response.choices[0].message.content, re.DOTALL)
+            # Extraire le JSON de la réponse
+            content = response.choices[0].message.content
+            match = re.search(r'\{.*?\}', content, re.DOTALL)
             if match:
                 signal = json.loads(match.group(0))
                 return signal
             return None
         except Exception as e:
-            return e
+            print(f"Erreur lors du nettoyage du signal: {e}")
+            return None

@@ -1,9 +1,6 @@
-# Exemple d'utilisation du système de trading avec MT5
-
 from signalPaser import SignalProcessor
 from riskManager import RiskManager
 from order import SendOrder
-from info import Infos
 
 class TradingBot:
     def __init__(self, total_risk_eur, max_risk_percentage=7.0):
@@ -11,23 +8,29 @@ class TradingBot:
         Initialise le bot de trading.
         
         Args:
-            total_risk_eur (float): Risque total en EUR pour un groupe de 3 positions
+            total_risk_eur (float): Risque total en EUR pour un signal (3 positions)
             max_risk_percentage (float): Pourcentage maximum du capital à risquer
         """
         self.risk_manager = RiskManager(total_risk_eur, max_risk_percentage)
         self.order_sender = SendOrder()
         self.processed_signals = []
+        self.supported_channels = [1, 2]
     
-    def process_signal(self, signal_text):
+    def process_signal(self, signal_text, channel_id=1):
         """
-        Traite un signal de trading complet avec vérification du risque.
+        Traite un signal de trading complet selon le canal spécifié.
         
         Args:
-            signal_text: Texte du signal à traiter
+            signal_text (str): Texte du signal à traiter
+            channel_id (int): ID du canal (1 ou 2)
         
         Returns:
-            dict: Résultat du traitement ou None si échec
+            list: Liste des ordres placés ou None si échec
         """
+        if channel_id not in self.supported_channels:
+            print(f"Canal {channel_id} non supporté. Canaux supportés: {self.supported_channels}")
+            return None
+        
         # Créer un objet signal simulé
         class MockSignal:
             def __init__(self, text):
@@ -36,61 +39,66 @@ class TradingBot:
         mock_signal = MockSignal(signal_text)
         
         # 1. Vérifier si c'est un signal valide
-        processor = SignalProcessor(mock_signal)
+        processor = SignalProcessor(mock_signal, channel_id)
         if not processor.is_signal():
             print("Le texte ne contient pas de signal de trading valide.")
             return None
         
         # 2. Extraire et valider le signal
-        signal = processor.get_signal()
-        if not signal:
+        signals = processor.get_signal()
+        if not signals:
             print("Impossible d'extraire ou de valider le signal.")
             return None
         
-        print(f"Signal extrait: {signal}")
+        print(f"Signal(s) extrait(s) pour le canal {channel_id}:")
+        if isinstance(signals, list):
+            for i, sig in enumerate(signals, 1):
+                print(f"  Ordre {i}: {sig}")
+        else:
+            print(f"  {signals}")
         
         # 3. Vérifier le statut du risque AVANT de continuer
-        print("\n🔍 Vérification du risque du compte...")
+        print(f"\n🔍 Vérification du risque du compte (Canal {channel_id})...")
         self.risk_manager.display_risk_status(self.order_sender)
         
         if not self.risk_manager.can_open_position(self.order_sender):
             print("❌ Signal ignoré: Risque du compte trop élevé")
             return None
         
-        # 4. Obtenir les informations de l'instrument
-        symbol = signal['symbol']
-        instrument_info = Infos.get_instrument_info(symbol)
-        if not instrument_info:
-            print(f"Instrument {symbol} non supporté.")
+        # 4. Calculer les tailles de lot
+        print(f"\n📊 Calcul des tailles de lot pour le canal {channel_id}...")
+        lot_sizes = self.risk_manager.calculate_lot_size_for_signal(signals, channel_id)
+        
+        if not lot_sizes:
+            print("Impossible de calculer les tailles de lot")
             return None
         
-        # 5. Calculer la taille de lot
-        pip_size = instrument_info['pip_size']
-        pip_value = instrument_info['pip_value_per_lot_eur']
-        lot_size = self.risk_manager.calculate_lot_size(signal, pip_size, pip_value)
+        print(f"Tailles de lot calculées: {lot_sizes}")
         
-        # 6. Valider la taille de lot
-        min_lot, max_lot = Infos.get_lot_limits(symbol)
-        lot_size = self.risk_manager.validate_lot_size(lot_size, min_lot, max_lot)
+        # 5. Placer les ordres sur MT5
+        print(f"\n📈 Placement des ordres sur MT5 (Canal {channel_id})...")
+        order_results = self.order_sender.place_signal_orders(signals, lot_sizes, channel_id)
         
-        print(f"Taille de lot calculée: {lot_size}")
-        
-        # 7. Placer l'ordre sur MT5
-        print("\n📈 Placement de l'ordre sur MT5...")
-        order_result = self.order_sender.place_order(signal, lot_size)
-        
-        if order_result:
-            self.processed_signals.append({
-                'signal': signal,
-                'lot_size': lot_size,
-                'order': order_result
-            })
+        if order_results:
+            # Enregistrer le signal traité
+            signal_record = {
+                'channel_id': channel_id,
+                'signals': signals,
+                'lot_sizes': lot_sizes,
+                'orders': order_results,
+                'timestamp': order_results[0]['timestamp'] if order_results else None
+            }
+            self.processed_signals.append(signal_record)
             
-            # Afficher le nouveau statut du risque après l'ordre
-            print("\n📊 Statut du risque après l'ordre:")
+            # Afficher le nouveau statut du risque
+            print(f"\n📊 Statut du risque après traitement du signal (Canal {channel_id}):")
             self.risk_manager.display_risk_status(self.order_sender)
+            
+            print(f"✅ Signal du canal {channel_id} traité avec succès! {len(order_results)} ordres placés.")
+        else:
+            print(f"❌ Échec du traitement du signal du canal {channel_id}.")
         
-        return order_result
+        return order_results
     
     def get_account_summary(self):
         """
@@ -122,6 +130,13 @@ class TradingBot:
         
         # Historique des signaux traités
         print(f"Signaux traités: {len(self.processed_signals)}")
+        if self.processed_signals:
+            print("Détail des signaux:")
+            for i, signal_record in enumerate(self.processed_signals, 1):
+                channel = signal_record['channel_id']
+                orders_count = len(signal_record['orders'])
+                print(f"  {i}. Canal {channel} - {orders_count} ordres - {signal_record['timestamp']}")
+        
         print("=" * 80 + "\n")
     
     def shutdown(self):
@@ -133,7 +148,7 @@ class TradingBot:
 
 # Exemple d'utilisation
 if __name__ == "__main__":
-    # Initialiser le bot avec un risque total de 300 EUR pour 3 positions
+    # Initialiser le bot avec un risque total de 300 EUR par signal
     # et une limite de risque de 7% du capital
     bot = TradingBot(total_risk_eur=300.0, max_risk_percentage=7.0)
     
@@ -141,23 +156,39 @@ if __name__ == "__main__":
         # Afficher le résumé initial du compte
         bot.get_account_summary()
         
-        # Exemple de signal de trading
-        signal_text = """
-        EURUSD SELL
-        Entry: 1.0850
-        SL: 1.0900
-        TP1: 1.0800
-        TP2: 1.0750
+        # Exemple de signal du canal 1
+        signal_canal_1 = """
+        XAUUSD BUY NOW @ 2329.79
+        SL @ 2314.90
+        TP1 @ 2350.00
+        TP2 @ 2375.00
+        TP3 @ 2403.50
         """
         
-        print("🚀 Traitement du signal de trading...")
-        result = bot.process_signal(signal_text)
+        print("🚀 Traitement du signal Canal 1...")
+        result_1 = bot.process_signal(signal_canal_1, channel_id=1)
         
-        if result:
-            print("\n✅ Signal traité avec succès!")
-            print(f"ID Ordre MT5: {result.get('mt5_order_id', 'N/A')}")
+        if result_1:
+            print(f"\n✅ Signal Canal 1 traité avec succès! {len(result_1)} ordres placés.")
         else:
-            print("\n❌ Échec du traitement du signal.")
+            print("\n❌ Échec du traitement du signal Canal 1.")
+        
+        # Exemple de signal du canal 2 (simulé)
+        signal_canal_2 = """
+        EURUSD SELL
+        Entry 1: 1.0850
+        Entry 2: 1.0860
+        Entry 3: 1.0870
+        SL: 1.0900
+        """
+        
+        print("\n🚀 Traitement du signal Canal 2...")
+        result_2 = bot.process_signal(signal_canal_2, channel_id=2)
+        
+        if result_2:
+            print(f"\n✅ Signal Canal 2 traité avec succès! {len(result_2)} ordres placés.")
+        else:
+            print("\n❌ Échec du traitement du signal Canal 2.")
         
         # Afficher le résumé final
         bot.get_account_summary()

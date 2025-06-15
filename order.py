@@ -23,7 +23,6 @@ class SendOrder:
             self.is_connected = True
             print("Connexion MT5 établie avec succès")
             
-            # Afficher les informations du compte
             account_info = mt5.account_info()
             if account_info:
                 print(f"Compte: {account_info.login}")
@@ -35,163 +34,239 @@ class SendOrder:
             print(f"Erreur lors de l'initialisation MT5: {e}")
             return False
     
-    def place_order(self, signal, lot_size):
+    def place_signal_orders(self, signals, lot_sizes, channel_id=1):
         """
-        Place un ordre sur MT5 basé sur le signal et la taille de lot calculée.
+        Place tous les ordres pour un signal complet.
         
         Args:
-            signal (dict): Signal de trading validé
-            lot_size (float): Nombre de lots calculé par RiskManager
+            signals: Signal(s) à traiter
+            lot_sizes (list): Tailles de lot pour chaque ordre
+            channel_id (int): ID du canal
         
         Returns:
-            dict: Détails de l'ordre placé ou None si échec
+            list: Liste des résultats d'ordres
+        """
+        if channel_id == 1:
+            return self._place_channel_1_orders(signals, lot_sizes)
+        elif channel_id == 2:
+            return self._place_channel_2_orders(signals, lot_sizes)
+        else:
+            print(f"Canal {channel_id} non supporté")
+            return []
+    
+    def _place_channel_1_orders(self, signal, lot_sizes):
+        """
+        Place 3 ordres pour le canal 1 (même entrée, 3 TPs différents).
         """
         if not self.is_connected:
             print("MT5 n'est pas connecté")
-            return None
+            return []
+        
+        results = []
+        symbol = signal['symbol']
+        entry_price = signal['entry_price']
+        sl_price = signal['sl']
+        tps = signal['tps']
+        sens = signal['sens']
         
         try:
-            symbol = signal['symbol']
-            
-            # Vérifier que le symbole existe
+            # Vérifier le symbole
             if not mt5.symbol_select(symbol, True):
                 print(f"Symbole {symbol} non disponible")
-                return None
+                return []
             
-            # Obtenir les informations du symbole
-            symbol_info = mt5.symbol_info(symbol)
-            if not symbol_info:
-                print(f"Impossible d'obtenir les informations pour {symbol}")
-                return None
-            
-            # Préparer la requête d'ordre
-            order_type = mt5.ORDER_TYPE_BUY if signal['sens'] == 'BUY' else mt5.ORDER_TYPE_SELL
-            
-            # Prix d'entrée (utiliser le prix du marché si pas spécifié)
-            if signal['entry_price']:
-                price = signal['entry_price']
-                action = mt5.TRADE_ACTION_PENDING
-            else:
-                price = mt5.symbol_info_tick(symbol).ask if signal['sens'] == 'BUY' else mt5.symbol_info_tick(symbol).bid
-                action = mt5.TRADE_ACTION_DEAL
-            
-            # Préparer la requête
-            request = {
-                "action": action,
-                "symbol": symbol,
-                "volume": lot_size,
-                "type": order_type,
-                "price": price,
-                "sl": signal['sl'],
-                "tp": signal['tps'][0] if signal['tps'] else None,  # Premier TP seulement
-                "deviation": 20,
-                "magic": 234000,
-                "comment": "Signal automatique",
-                "type_time": mt5.ORDER_TIME_GTC,
-                "type_filling": mt5.ORDER_FILLING_IOC,
-            }
-            
-            # Envoyer l'ordre
-            result = mt5.order_send(request)
-            
-            if result.retcode != mt5.TRADE_RETCODE_DONE:
-                print(f"Erreur lors de l'envoi de l'ordre: {result.retcode} - {result.comment}")
-                return None
-            
-            # Créer les détails de l'ordre
-            order_details = {
-                'timestamp': datetime.now().isoformat(),
-                'symbol': symbol,
-                'type': signal['sens'],
-                'entry_price': price,
-                'lot_size': lot_size,
-                'stop_loss': signal['sl'],
-                'take_profits': signal['tps'],
-                'status': 'FILLED',
-                'mt5_order_id': result.order,
-                'mt5_deal_id': result.deal if hasattr(result, 'deal') else None
-            }
-            
-            # Ajouter à l'historique
-            self.orders_history.append(order_details)
-            
-            # Afficher les détails
-            self._display_order(order_details)
-            
-            # Placer les TPs supplémentaires si nécessaire
-            if len(signal['tps']) > 1:
-                self._place_additional_tps(symbol, signal['tps'][1:], lot_size, signal['sens'])
-            
-            return order_details
-            
-        except Exception as e:
-            print(f"Erreur lors de la création de l'ordre MT5: {e}")
-            return None
-    
-    def _place_additional_tps(self, symbol, additional_tps, lot_size, direction):
-        """
-        Place des ordres TP supplémentaires.
-        
-        Args:
-            symbol (str): Symbole de trading
-            additional_tps (list): Liste des TPs supplémentaires
-            lot_size (float): Taille de lot
-            direction (str): Direction BUY ou SELL
-        """
-        try:
-            for tp_price in additional_tps:
-                order_type = mt5.ORDER_TYPE_SELL_LIMIT if direction == 'BUY' else mt5.ORDER_TYPE_BUY_LIMIT
+            # Placer un ordre pour chaque TP
+            for i in range(3):
+                if i >= len(lot_sizes) or i >= len(tps):
+                    break
                 
+                lot_size = lot_sizes[i]
+                tp_price = tps[i]
+                
+                # Déterminer le type d'ordre
+                order_type = mt5.ORDER_TYPE_BUY if sens == 'BUY' else mt5.ORDER_TYPE_SELL
+                
+                # Prix d'entrée
+                if entry_price:
+                    price = entry_price
+                    action = mt5.TRADE_ACTION_PENDING
+                else:
+                    tick = mt5.symbol_info_tick(symbol)
+                    price = tick.ask if sens == 'BUY' else tick.bid
+                    action = mt5.TRADE_ACTION_DEAL
+                
+                # Préparer la requête
                 request = {
-                    "action": mt5.TRADE_ACTION_PENDING,
+                    "action": action,
                     "symbol": symbol,
-                    "volume": lot_size / len(additional_tps),  # Diviser le volume
+                    "volume": lot_size,
                     "type": order_type,
-                    "price": tp_price,
+                    "price": price,
+                    "sl": sl_price,
+                    "tp": tp_price,
                     "deviation": 20,
-                    "magic": 234000,
-                    "comment": "TP supplémentaire",
+                    "magic": 234000 + i,  # Magic number différent pour chaque ordre
+                    "comment": f"Signal Canal 1 - TP{i+1}",
                     "type_time": mt5.ORDER_TIME_GTC,
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
                 
+                # Envoyer l'ordre
                 result = mt5.order_send(request)
-                if result.retcode == mt5.TRADE_RETCODE_DONE:
-                    print(f"TP supplémentaire placé à {tp_price}")
-                else:
-                    print(f"Erreur TP supplémentaire: {result.comment}")
-                    
+                
+                if result.retcode != mt5.TRADE_RETCODE_DONE:
+                    print(f"Erreur ordre TP{i+1}: {result.retcode} - {result.comment}")
+                    continue
+                
+                # Créer les détails de l'ordre
+                order_details = {
+                    'timestamp': datetime.now().isoformat(),
+                    'symbol': symbol,
+                    'type': sens,
+                    'entry_price': price,
+                    'lot_size': lot_size,
+                    'stop_loss': sl_price,
+                    'take_profit': tp_price,
+                    'tp_number': i + 1,
+                    'status': 'FILLED' if action == mt5.TRADE_ACTION_DEAL else 'PENDING',
+                    'mt5_order_id': result.order,
+                    'mt5_deal_id': result.deal if hasattr(result, 'deal') else None,
+                    'channel_id': 1
+                }
+                
+                results.append(order_details)
+                self.orders_history.append(order_details)
+                
+                print(f"✅ Ordre TP{i+1} placé: {lot_size} lots à {tp_price}")
+                time.sleep(0.1)  # Petite pause entre les ordres
+            
+            if results:
+                self._display_signal_orders(results)
+            
+            return results
+            
         except Exception as e:
-            print(f"Erreur lors du placement des TPs supplémentaires: {e}")
+            print(f"Erreur lors du placement des ordres canal 1: {e}")
+            return []
     
-    def _display_order(self, order_details):
+    def _place_channel_2_orders(self, signals, lot_sizes):
         """
-        Affiche les détails de l'ordre.
+        Place 3 ordres pour le canal 2 (3 entrées différentes, RR fixe).
+        """
+        if not self.is_connected:
+            print("MT5 n'est pas connecté")
+            return []
         
-        Args:
-            order_details (dict): Détails de l'ordre
+        results = []
+        
+        try:
+            for i, (signal, lot_size) in enumerate(zip(signals, lot_sizes)):
+                symbol = signal['symbol']
+                entry_price = signal['entry_price']
+                sl_price = signal['sl']
+                tp_price = signal['tps'][0]  # Un seul TP par ordre
+                sens = signal['sens']
+                rr_ratio = signal['rr_ratio']
+                
+                # Vérifier le symbole
+                if not mt5.symbol_select(symbol, True):
+                    print(f"Symbole {symbol} non disponible")
+                    continue
+                
+                # Type d'ordre
+                order_type = mt5.ORDER_TYPE_BUY if sens == 'BUY' else mt5.ORDER_TYPE_SELL
+                
+                # Prix d'entrée
+                if entry_price:
+                    price = entry_price
+                    action = mt5.TRADE_ACTION_PENDING
+                else:
+                    tick = mt5.symbol_info_tick(symbol)
+                    price = tick.ask if sens == 'BUY' else tick.bid
+                    action = mt5.TRADE_ACTION_DEAL
+                
+                # Préparer la requête
+                request = {
+                    "action": action,
+                    "symbol": symbol,
+                    "volume": lot_size,
+                    "type": order_type,
+                    "price": price,
+                    "sl": sl_price,
+                    "tp": tp_price,
+                    "deviation": 20,
+                    "magic": 235000 + i,  # Magic number différent
+                    "comment": f"Signal Canal 2 - RR{rr_ratio}",
+                    "type_time": mt5.ORDER_TIME_GTC,
+                    "type_filling": mt5.ORDER_FILLING_IOC,
+                }
+                
+                # Envoyer l'ordre
+                result = mt5.order_send(request)
+                
+                if result.retcode != mt5.TRADE_RETCODE_DONE:
+                    print(f"Erreur ordre RR{rr_ratio}: {result.retcode} - {result.comment}")
+                    continue
+                
+                # Créer les détails de l'ordre
+                order_details = {
+                    'timestamp': datetime.now().isoformat(),
+                    'symbol': symbol,
+                    'type': sens,
+                    'entry_price': price,
+                    'lot_size': lot_size,
+                    'stop_loss': sl_price,
+                    'take_profit': tp_price,
+                    'rr_ratio': rr_ratio,
+                    'order_index': i + 1,
+                    'status': 'FILLED' if action == mt5.TRADE_ACTION_DEAL else 'PENDING',
+                    'mt5_order_id': result.order,
+                    'mt5_deal_id': result.deal if hasattr(result, 'deal') else None,
+                    'channel_id': 2
+                }
+                
+                results.append(order_details)
+                self.orders_history.append(order_details)
+                
+                print(f"✅ Ordre RR{rr_ratio} placé: {lot_size} lots, entrée {entry_price}, TP {tp_price}")
+                time.sleep(0.1)
+            
+            if results:
+                self._display_signal_orders(results)
+            
+            return results
+            
+        except Exception as e:
+            print(f"Erreur lors du placement des ordres canal 2: {e}")
+            return []
+    
+    def _display_signal_orders(self, orders):
         """
-        print("=" * 50)
-        print("NOUVEL ORDRE PLACÉ SUR MT5")
-        print("=" * 50)
-        print(f"Timestamp: {order_details['timestamp']}")
-        print(f"Symbole: {order_details['symbol']}")
-        print(f"Type: {order_details['type']}")
-        print(f"Prix d'entrée: {order_details['entry_price']}")
-        print(f"Taille de lot: {order_details['lot_size']}")
-        print(f"Stop Loss: {order_details['stop_loss']}")
-        print(f"Take Profits: {', '.join(map(str, order_details['take_profits']))}")
-        print(f"Statut: {order_details['status']}")
-        if order_details.get('mt5_order_id'):
-            print(f"ID Ordre MT5: {order_details['mt5_order_id']}")
-        print("=" * 50)
+        Affiche les détails des ordres d'un signal.
+        """
+        if not orders:
+            return
+        
+        print("\n" + "=" * 70)
+        print(f"SIGNAL TRAITÉ - CANAL {orders[0]['channel_id']} - {len(orders)} ORDRES PLACÉS")
+        print("=" * 70)
+        print(f"Symbole: {orders[0]['symbol']}")
+        print(f"Direction: {orders[0]['type']}")
+        print(f"Stop Loss: {orders[0]['stop_loss']}")
+        print("-" * 70)
+        
+        for i, order in enumerate(orders, 1):
+            if order['channel_id'] == 1:
+                print(f"Ordre {i} - TP{order['tp_number']}: {order['lot_size']} lots → {order['take_profit']}")
+            else:
+                print(f"Ordre {i} - RR{order['rr_ratio']}: {order['lot_size']} lots → {order['take_profit']}")
+            print(f"  ID MT5: {order['mt5_order_id']} | Statut: {order['status']}")
+        
+        print("=" * 70 + "\n")
     
     def get_account_info(self):
         """
         Retourne les informations du compte MT5.
-        
-        Returns:
-            dict: Informations du compte ou None si erreur
         """
         if not self.is_connected:
             return None
@@ -215,9 +290,6 @@ class SendOrder:
     def get_open_positions(self):
         """
         Retourne les positions ouvertes.
-        
-        Returns:
-            list: Liste des positions ouvertes
         """
         if not self.is_connected:
             return []
@@ -232,9 +304,6 @@ class SendOrder:
     def get_orders_history(self):
         """
         Retourne l'historique des ordres.
-        
-        Returns:
-            list: Liste des ordres placés
         """
         return self.orders_history
     
