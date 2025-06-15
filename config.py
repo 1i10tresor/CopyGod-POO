@@ -9,10 +9,10 @@ class TelegramConfig:
     def __init__(self):
         load_dotenv()
         
-        # IDs des canaux Telegram (à configurer dans .env)
+        # IDs des canaux Telegram RÉELS
         self.CHANNEL_IDS = {
-            1: os.getenv("TELEGRAM_CHANNEL_1_ID", "-1001234567890"),  # Canal 1 - Format Standard
-            2: os.getenv("TELEGRAM_CHANNEL_2_ID", "-1001234567891")   # Canal 2 - Format Fourchette
+            1: os.getenv("TELEGRAM_CHANNEL_1_ID", "-2125503665"),  # Canal 1 - Format Standard
+            2: os.getenv("TELEGRAM_CHANNEL_2_ID", "-2259371711")   # Canal 2 - Format Fourchette
         }
         
         # Token du bot Telegram
@@ -150,12 +150,12 @@ trading_config = TradingConfig()
 
 # Exemple de fichier .env
 ENV_EXAMPLE = """
-# Configuration Telegram
+# Configuration Telegram - IDs RÉELS
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_API_ID=your_api_id_here
 TELEGRAM_API_HASH=your_api_hash_here
-TELEGRAM_CHANNEL_1_ID=-1001234567890
-TELEGRAM_CHANNEL_2_ID=-1001234567891
+TELEGRAM_CHANNEL_1_ID=-2125503665
+TELEGRAM_CHANNEL_2_ID=-2259371711
 
 # Configuration Trading
 TOTAL_RISK_EUR=300.0
