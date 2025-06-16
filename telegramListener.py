@@ -24,17 +24,19 @@ class TelegramListener:
         self.client = None
         self.is_listening = False
         
-        # Configuration des canaux surveillés
+        # Configuration des canaux surveillés avec IDs Telegram
         self.monitored_channels = {
             1: {
                 'name': 'Canal Standard',
                 'telegram_id': telegram_config.get_channel_id(1),
+                'verified_id': None,  # ID vérifié qui fonctionne
                 'message_count': 0,
                 'last_message_time': None
             },
             2: {
                 'name': 'Canal Fourchette',
                 'telegram_id': telegram_config.get_channel_id(2),
+                'verified_id': None,  # ID vérifié qui fonctionne
                 'message_count': 0,
                 'last_message_time': None
             }
@@ -47,6 +49,40 @@ class TelegramListener:
         self.api_id = telegram_config.API_ID
         self.api_hash = telegram_config.API_HASH
         self.session_name = telegram_config.SESSION_NAME
+    
+    def _generate_possible_ids(self, base_id):
+        """
+        Génère les différents formats possibles d'ID Telegram.
+        
+        Args:
+            base_id (int): ID de base (ex: -2125503665)
+            
+        Returns:
+            list: Liste des IDs possibles à tester
+        """
+        if base_id >= 0:
+            return [base_id]
+        
+        # Pour les IDs négatifs, tester plusieurs formats
+        base_str = str(abs(base_id))
+        
+        possible_ids = [
+            base_id,  # Format original: -2125503665
+        ]
+        
+        # Si l'ID commence par -2, essayer d'ajouter 100
+        if base_str.startswith('2') and len(base_str) >= 9:
+            # Format avec 100: -1002125503665
+            new_id = int(f"-100{base_str}")
+            possible_ids.append(new_id)
+        
+        # Si l'ID commence déjà par -100, essayer sans le 100
+        if base_str.startswith('100') and len(base_str) >= 12:
+            # Retirer le 100: -2125503665
+            new_id = int(f"-{base_str[3:]}")
+            possible_ids.append(new_id)
+        
+        return possible_ids
     
     async def initialize_client(self):
         """
@@ -88,25 +124,47 @@ class TelegramListener:
     
     async def _verify_channel_access(self):
         """
-        Vérifie l'accès aux canaux surveillés.
+        Vérifie l'accès aux canaux surveillés en testant différents formats d'ID.
         """
         print("🔍 Vérification de l'accès aux canaux...")
         
         for channel_id, info in self.monitored_channels.items():
-            telegram_id = info['telegram_id']
-            try:
-                # Essayer d'obtenir les informations du canal
-                entity = await self.client.get_entity(telegram_id)
-                print(f"✅ Canal {channel_id} ({info['name']}): {entity.title}")
-                
-                # Obtenir les derniers messages pour tester
-                messages = await self.client.get_messages(entity, limit=1)
-                if messages:
-                    print(f"   📨 Dernier message: {messages[0].date}")
-                
-            except Exception as e:
-                print(f"❌ Erreur d'accès au canal {channel_id} (ID: {telegram_id}): {e}")
-                print(f"💡 Vérifiez que vous avez accès à ce canal")
+            base_telegram_id = info['telegram_id']
+            possible_ids = self._generate_possible_ids(base_telegram_id)
+            
+            print(f"\n📡 Test du Canal {channel_id} ({info['name']}):")
+            print(f"   ID de base: {base_telegram_id}")
+            print(f"   IDs à tester: {possible_ids}")
+            
+            verified_id = None
+            
+            for test_id in possible_ids:
+                try:
+                    print(f"   🔍 Test de l'ID: {test_id}")
+                    
+                    # Essayer d'obtenir les informations du canal
+                    entity = await self.client.get_entity(test_id)
+                    print(f"   ✅ SUCCÈS avec ID {test_id}: {entity.title}")
+                    
+                    # Obtenir les derniers messages pour tester
+                    messages = await self.client.get_messages(entity, limit=1)
+                    if messages:
+                        print(f"      📨 Dernier message: {messages[0].date}")
+                    
+                    # Sauvegarder l'ID qui fonctionne
+                    verified_id = test_id
+                    break
+                    
+                except Exception as e:
+                    print(f"   ❌ Échec avec ID {test_id}: {str(e)[:100]}...")
+                    continue
+            
+            if verified_id:
+                self.monitored_channels[channel_id]['verified_id'] = verified_id
+                print(f"   🎯 ID vérifié pour Canal {channel_id}: {verified_id}")
+            else:
+                print(f"   ❌ Aucun ID fonctionnel trouvé pour Canal {channel_id}")
+                print(f"   💡 Vérifiez que vous avez accès à ce canal")
     
     async def start_listening(self):
         """
@@ -122,10 +180,22 @@ class TelegramListener:
                 print("❌ Impossible de démarrer l'écoute")
                 return
         
+        # Vérifier qu'au moins un canal est accessible
+        accessible_channels = [
+            channel_id for channel_id, info in self.monitored_channels.items()
+            if info.get('verified_id') is not None
+        ]
+        
+        if not accessible_channels:
+            print("❌ Aucun canal accessible trouvé")
+            print("💡 Vérifiez vos IDs de canaux et votre accès")
+            return
+        
         print("🎧 Démarrage de l'écoute en temps réel...")
-        print("📡 Canaux surveillés:")
-        for channel_id, info in self.monitored_channels.items():
-            print(f"   Canal {channel_id}: {info['name']} (TG: {info['telegram_id']})")
+        print("📡 Canaux accessibles:")
+        for channel_id in accessible_channels:
+            info = self.monitored_channels[channel_id]
+            print(f"   Canal {channel_id}: {info['name']} (ID: {info['verified_id']})")
         
         self.is_listening = True
         
@@ -139,10 +209,19 @@ class TelegramListener:
         """
         Configure les gestionnaires d'événements pour les nouveaux messages.
         """
-        # Liste des IDs de canaux à surveiller
-        channel_ids = [info['telegram_id'] for info in self.monitored_channels.values()]
+        # Liste des IDs de canaux vérifiés à surveiller
+        verified_channel_ids = [
+            info['verified_id'] for info in self.monitored_channels.values()
+            if info.get('verified_id') is not None
+        ]
         
-        @self.client.on(events.NewMessage(chats=channel_ids))
+        if not verified_channel_ids:
+            print("❌ Aucun canal vérifié pour la surveillance")
+            return
+        
+        print(f"🎯 Surveillance active sur les IDs: {verified_channel_ids}")
+        
+        @self.client.on(events.NewMessage(chats=verified_channel_ids))
         async def handle_new_message(event):
             """
             Gestionnaire pour les nouveaux messages.
@@ -151,6 +230,7 @@ class TelegramListener:
                 # Identifier le canal source
                 channel_id = self._identify_channel(event.chat_id)
                 if not channel_id:
+                    print(f"⚠️  Message reçu d'un canal non identifié: {event.chat_id}")
                     return
                 
                 message_text = event.message.message
@@ -181,7 +261,7 @@ class TelegramListener:
             int: Numéro du canal (1 ou 2) ou None si non trouvé
         """
         for channel_id, info in self.monitored_channels.items():
-            if info['telegram_id'] == chat_id:
+            if info.get('verified_id') == chat_id:
                 return channel_id
         return None
     
@@ -219,7 +299,8 @@ class TelegramListener:
                 'message_id': message_id,
                 'channel_id': channel_id,
                 'channel_name': self.monitored_channels[channel_id]['name'],
-                'telegram_chat_id': self.monitored_channels[channel_id]['telegram_id'],
+                'telegram_chat_id': self.monitored_channels[channel_id]['verified_id'],
+                'original_telegram_id': self.monitored_channels[channel_id]['telegram_id'],
                 'content': message_text,
                 'timestamp': timestamp.isoformat(),
                 'sender': sender.first_name if sender else 'Inconnu',
@@ -263,7 +344,11 @@ class TelegramListener:
             'is_listening': self.is_listening,
             'client_connected': self.client is not None and self.client.is_connected(),
             'monitored_channels': self.monitored_channels,
-            'total_processed': len(self.processed_messages)
+            'total_processed': len(self.processed_messages),
+            'accessible_channels': [
+                channel_id for channel_id, info in self.monitored_channels.items()
+                if info.get('verified_id') is not None
+            ]
         }
     
     def display_listener_summary(self):
@@ -278,13 +363,22 @@ class TelegramListener:
         print(f"Statut: {'🟢 ACTIF' if status['is_listening'] else '🔴 ARRÊTÉ'}")
         print(f"Client: {'🟢 Connecté' if status['client_connected'] else '🔴 Déconnecté'}")
         print(f"Messages traités: {status['total_processed']}")
+        print(f"Canaux accessibles: {len(status['accessible_channels'])}/{len(self.monitored_channels)}")
         
         print("\nCanaux surveillés:")
         for channel_id, info in status['monitored_channels'].items():
-            print(f"  📡 Canal {channel_id} ({info['name']}): {info['message_count']} messages")
-            print(f"      Telegram ID: {info['telegram_id']}")
-            if info['last_message_time']:
-                print(f"      Dernier message: {info['last_message_time']}")
+            verified_id = info.get('verified_id')
+            original_id = info['telegram_id']
+            status_icon = "✅" if verified_id else "❌"
+            
+            print(f"  {status_icon} Canal {channel_id} ({info['name']}): {info['message_count']} messages")
+            print(f"      ID original: {original_id}")
+            if verified_id:
+                print(f"      ID vérifié: {verified_id}")
+                if info['last_message_time']:
+                    print(f"      Dernier message: {info['last_message_time']}")
+            else:
+                print(f"      ❌ Non accessible")
         
         if self.processed_messages:
             print(f"\nDerniers messages traités:")
