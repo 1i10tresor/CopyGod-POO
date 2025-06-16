@@ -9,18 +9,16 @@ class TelegramConfig:
     def __init__(self):
         load_dotenv()
         
+        # Configuration de l'API Telegram (compte utilisateur)
+        self.API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
+        self.API_HASH = os.getenv("TELEGRAM_API_HASH", "")
+        self.SESSION_NAME = os.getenv("TELEGRAM_SESSION_NAME", "trading_bot_session")
+        
         # IDs des canaux Telegram RÉELS
         self.CHANNEL_IDS = {
-            1: os.getenv("TELEGRAM_CHANNEL_1_ID", "-2125503665"),  # Canal 1 - Format Standard
-            2: os.getenv("TELEGRAM_CHANNEL_2_ID", "-2259371711")   # Canal 2 - Format Fourchette
+            1: int(os.getenv("TELEGRAM_CHANNEL_1_ID", "-2125503665")),  # Canal 1 - Format Standard
+            2: int(os.getenv("TELEGRAM_CHANNEL_2_ID", "-2259371711"))   # Canal 2 - Format Fourchette
         }
-        
-        # Token du bot Telegram
-        self.BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-        
-        # Configuration de l'API Telegram
-        self.API_ID = os.getenv("TELEGRAM_API_ID", "")
-        self.API_HASH = os.getenv("TELEGRAM_API_HASH", "")
         
         # Validation de la configuration
         self._validate_config()
@@ -31,10 +29,7 @@ class TelegramConfig:
         """
         missing_configs = []
         
-        if not self.BOT_TOKEN:
-            missing_configs.append("TELEGRAM_BOT_TOKEN")
-        
-        if not self.API_ID:
+        if not self.API_ID or self.API_ID == 0:
             missing_configs.append("TELEGRAM_API_ID")
         
         if not self.API_HASH:
@@ -54,7 +49,7 @@ class TelegramConfig:
             channel_number (int): Numéro du canal (1 ou 2)
         
         Returns:
-            str: ID du canal Telegram
+            int: ID du canal Telegram
         """
         return self.CHANNEL_IDS.get(channel_number)
     
@@ -82,9 +77,9 @@ class TelegramConfig:
         print("CONFIGURATION TELEGRAM")
         print("=" * 60)
         
-        print(f"Bot Token: {'✅ Configuré' if self.BOT_TOKEN else '❌ Manquant'}")
         print(f"API ID: {'✅ Configuré' if self.API_ID else '❌ Manquant'}")
         print(f"API Hash: {'✅ Configuré' if self.API_HASH else '❌ Manquant'}")
+        print(f"Session: {self.SESSION_NAME}")
         
         print("\nCanaux surveillés:")
         for channel_num, channel_id in self.CHANNEL_IDS.items():
@@ -150,10 +145,10 @@ trading_config = TradingConfig()
 
 # Exemple de fichier .env
 ENV_EXAMPLE = """
-# Configuration Telegram - IDs RÉELS
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_API_ID=your_api_id_here
-TELEGRAM_API_HASH=your_api_hash_here
+# Configuration Telegram - Comptes utilisateurs
+TELEGRAM_API_ID=26513066
+TELEGRAM_API_HASH=6c3198f742f9f01de443990154353d95
+TELEGRAM_SESSION_NAME=trading_bot_session
 TELEGRAM_CHANNEL_1_ID=-2125503665
 TELEGRAM_CHANNEL_2_ID=-2259371711
 

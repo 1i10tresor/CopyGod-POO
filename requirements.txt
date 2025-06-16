@@ -1,5 +1,4 @@
 MetaTrader5==5.0.45
 openai==0.28.1
 python-dotenv==1.0.0
-pyrogram==2.0.106
 telethon==1.29.3
