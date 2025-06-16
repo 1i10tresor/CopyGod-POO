@@ -3,12 +3,11 @@ import threading
 from datetime import datetime
 from main import TradingBot
 from config import telegram_config
-from simulatedSignals import SimulatedSignal, SignalLibrary
 
 class MessageListener:
     """
     Écouteur de messages pour les canaux de trading Telegram.
-    Surveille les nouveaux messages et déclenche le traitement automatique.
+    VERSION SIMULATION UNIQUEMENT - Pour la vraie connexion, utilisez telegramListener.py
     """
     
     def __init__(self, bot_instance):
@@ -53,7 +52,8 @@ class MessageListener:
         self.listener_thread = threading.Thread(target=self._listen_loop, daemon=True)
         self.listener_thread.start()
         
-        print("🎧 Écouteur de messages démarré")
+        print("🎧 Écouteur de messages démarré (MODE SIMULATION)")
+        print("💡 Pour la vraie connexion Telegram, utilisez: python launch_telegram_bot.py")
         print("📡 Canaux surveillés:")
         for channel_id, info in self.monitored_channels.items():
             print(f"   Canal {channel_id}: {info['name']} (TG: {info['telegram_id']})")
@@ -89,60 +89,6 @@ class MessageListener:
             except Exception as e:
                 print(f"❌ Erreur dans la boucle d'écoute: {e}")
                 time.sleep(5)  # Attendre plus longtemps en cas d'erreur
-    
-    def simulate_message(self, channel_id, message_content=None, author="TestUser"):
-        """
-        Simule l'arrivée d'un nouveau message pour les tests.
-        
-        Args:
-            channel_id (int): ID du canal
-            message_content (str): Contenu du message (signal aléatoire si None)
-            author (str): Auteur du message
-        """
-        if channel_id not in self.monitored_channels:
-            print(f"❌ Canal {channel_id} non surveillé")
-            return
-        
-        # Si pas de contenu spécifié, utiliser un signal de la bibliothèque
-        if message_content is None:
-            if channel_id == 1:
-                signal = SignalLibrary.get_signal('xauusd_buy', channel_id)
-            else:
-                signal = SignalLibrary.get_signal('xauusd_sell_fourchette', channel_id)
-            
-            if signal:
-                message_content = signal.text
-            else:
-                print(f"❌ Impossible de générer un signal pour le canal {channel_id}")
-                return
-        
-        # Créer un message simulé
-        simulated_message = {
-            'id': f'sim_{int(time.time())}_{channel_id}',
-            'content': message_content,
-            'timestamp': datetime.now().isoformat(),
-            'author': author,
-            'channel_id': channel_id,
-            'telegram_id': self.monitored_channels[channel_id]['telegram_id']
-        }
-        
-        print(f"🧪 Simulation d'un message dans le Canal {channel_id}")
-        self._process_new_message(simulated_message, channel_id)
-    
-    def simulate_signal_from_library(self, signal_name):
-        """
-        Simule un signal depuis la bibliothèque.
-        
-        Args:
-            signal_name (str): Nom du signal dans la bibliothèque
-        """
-        signal = SignalLibrary.get_signal(signal_name)
-        if not signal:
-            print(f"❌ Signal '{signal_name}' non trouvé")
-            return
-        
-        message = signal.to_message_format()
-        self._process_new_message(message, signal.channel_id)
     
     def _process_new_message(self, message, channel_id):
         """
@@ -304,32 +250,6 @@ class TradingSystem:
         self.is_running = False
         print("✅ Système de trading arrêté")
     
-    def run_demo(self):
-        """
-        Lance une démonstration avec des signaux simulés.
-        """
-        print("\n🧪 DÉMONSTRATION - Simulation de signaux...")
-        
-        # Lister les signaux disponibles
-        SignalLibrary.list_signals()
-        
-        # Simuler différents signaux
-        demo_signals = [
-            'xauusd_buy',
-            'xauusd_sell_fourchette',
-            'eurusd_buy',
-            'eurusd_buy_fourchette',
-            'xauusd_buy_open'
-        ]
-        
-        for signal_name in demo_signals:
-            print(f"\n🎯 Test du signal: {signal_name}")
-            self.listener.simulate_signal_from_library(signal_name)
-            time.sleep(2)  # Pause entre les signaux
-        
-        # Afficher le résumé final
-        self.display_full_summary()
-    
     def get_system_status(self):
         """
         Retourne le statut complet du système.
@@ -366,28 +286,3 @@ class TradingSystem:
         print("💡 POUR LA VRAIE CONNEXION TELEGRAM:")
         print("   python launch_telegram_bot.py")
         print("=" * 100 + "\n")
-
-
-# Exemple d'utilisation du système complet
-if __name__ == "__main__":
-    # Créer le système complet
-    system = TradingSystem()
-    
-    try:
-        # Démarrer le système
-        system.start_system()
-        
-        # Lancer la démonstration
-        system.run_demo()
-        
-        # Garder le système en vie pour la démonstration
-        print("💡 Système en cours d'exécution... Appuyez sur Ctrl+C pour arrêter")
-        while True:
-            time.sleep(10)
-            
-    except KeyboardInterrupt:
-        print("\n⏹️  Arrêt du système demandé par l'utilisateur")
-    except Exception as e:
-        print(f"\n💥 Erreur inattendue: {e}")
-    finally:
-        system.stop_system()
