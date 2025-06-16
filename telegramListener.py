@@ -1,7 +1,306 @@
-._process_message(message_text, channel_id, message_id, sender, event.message.date)
+import asyncio
+import time
+from datetime import datetime
+from telethon import TelegramClient, events
+from telethon.errors import SessionPasswordNeededError, FloodWaitError
+from telethon.tl.types import User, Channel, Chat
+from config import telegram_config
+from main import TradingBot
+from signalPaser import SignalProcessor
+
+class TelegramListener:
+    """
+    Écouteur Telegram en temps réel utilisant Telethon.
+    Se connecte directement avec votre compte utilisateur.
+    """
+    
+    def __init__(self, bot_instance):
+        """
+        Initialise l'écouteur Telegram.
+        
+        Args:
+            bot_instance (TradingBot): Instance du bot de trading
+        """
+        self.bot = bot_instance
+        self.client = None
+        self.is_listening = False
+        
+        # Configuration des canaux surveillés
+        self.monitored_channels = {
+            1: {
+                'name': 'Canal Standard',
+                'telegram_id': telegram_config.get_channel_id(1),
+                'message_count': 0,
+                'last_message_time': None,
+                'verified_id': None
+            },
+            2: {
+                'name': 'Canal Fourchette',
+                'telegram_id': telegram_config.get_channel_id(2),
+                'message_count': 0,
+                'last_message_time': None,
+                'verified_id': None
+            }
+        }
+        
+        # Historique des messages traités
+        self.processed_messages = []
+        
+        # Configuration Telegram
+        self.api_id = telegram_config.API_ID
+        self.api_hash = telegram_config.API_HASH
+        self.session_name = telegram_config.SESSION_NAME
+    
+    def _generate_possible_ids(self, base_id):
+        """
+        Génère les IDs possibles à tester pour un canal.
+        
+        Args:
+            base_id (int): ID de base du canal
+            
+        Returns:
+            list: Liste des IDs à tester
+        """
+        possible_ids = [base_id]
+        
+        # Si l'ID est négatif et ne commence pas par -100, ajouter la version avec -100
+        if base_id < 0 and not str(base_id).startswith('-100'):
+            # Convertir -2125503665 en -1002125503665
+            id_str = str(abs(base_id))
+            new_id = int(f"-100{id_str}")
+            possible_ids.append(new_id)
+        
+        return possible_ids
+    
+    async def initialize_client(self):
+        """
+        Initialise et connecte le client Telegram.
+        """
+        try:
+            print("🔄 Initialisation du client Telegram...")
+            
+            # Créer le client Telethon
+            self.client = TelegramClient(
+                self.session_name,
+                self.api_id,
+                self.api_hash
+            )
+            
+            # Se connecter
+            await self.client.start()
+            
+            # Vérifier si on est connecté
+            if await self.client.is_user_authorized():
+                me = await self.client.get_me()
+                print(f"✅ Connecté en tant que: {me.first_name} (@{me.username})")
+                
+                # Vérifier l'accès aux canaux
+                await self._verify_channel_access()
+                
+                return True
+            else:
+                print("❌ Échec de l'autorisation Telegram")
+                return False
+                
+        except SessionPasswordNeededError:
+            print("❌ Authentification à deux facteurs requise")
+            print("💡 Veuillez configurer votre session Telegram manuellement")
+            return False
+        except Exception as e:
+            print(f"❌ Erreur lors de l'initialisation Telegram: {e}")
+            return False
+    
+    async def _verify_channel_access(self):
+        """
+        Vérifie l'accès aux canaux surveillés et trouve les bons IDs.
+        """
+        print("🔍 Vérification de l'accès aux canaux...")
+        
+        for channel_id, info in self.monitored_channels.items():
+            base_telegram_id = info['telegram_id']
+            possible_ids = self._generate_possible_ids(base_telegram_id)
+            
+            print(f"\n📡 Test du Canal {channel_id} ({info['name']}):")
+            print(f"   ID de base: {base_telegram_id}")
+            print(f"   IDs à tester: {possible_ids}")
+            
+            verified_id = None
+            
+            for test_id in possible_ids:
+                try:
+                    print(f"   🔍 Test de l'ID: {test_id}")
+                    
+                    # Essayer d'obtenir les informations du canal
+                    entity = await self.client.get_entity(test_id)
+                    
+                    # Obtenir le nom du canal selon le type
+                    if isinstance(entity, Channel):
+                        channel_name = entity.title
+                    elif isinstance(entity, Chat):
+                        channel_name = entity.title
+                    elif isinstance(entity, User):
+                        channel_name = f"{entity.first_name} {entity.last_name or ''}".strip()
+                    else:
+                        channel_name = "Canal inconnu"
+                    
+                    print(f"   ✅ SUCCÈS avec ID {test_id}: {channel_name}")
+                    
+                    # Tester l'accès aux messages
+                    messages = await self.client.get_messages(entity, limit=1)
+                    if messages:
+                        print(f"   📨 Dernier message: {messages[0].date}")
+                    
+                    verified_id = test_id
+                    break
+                    
+                except Exception as e:
+                    print(f"   ❌ Échec avec ID {test_id}: {str(e)[:100]}...")
+                    continue
+            
+            if verified_id:
+                self.monitored_channels[channel_id]['verified_id'] = verified_id
+                print(f"   🎯 ID vérifié pour Canal {channel_id}: {verified_id}")
+            else:
+                print(f"   ❌ Aucun ID fonctionnel trouvé pour Canal {channel_id}")
+                print(f"   💡 Vérifiez que vous avez accès à ce canal")
+    
+    async def start_listening(self):
+        """
+        Démarre l'écoute en temps réel des messages.
+        """
+        if self.is_listening:
+            print("⚠️  L'écouteur est déjà en cours d'exécution")
+            return
+        
+        # Initialiser le client si nécessaire
+        if not self.client:
+            if not await self.initialize_client():
+                print("❌ Impossible de démarrer l'écoute")
+                return
+        
+        print("🎧 Démarrage de l'écoute en temps réel...")
+        
+        # Vérifier qu'au moins un canal est accessible
+        accessible_channels = [
+            channel_id for channel_id, info in self.monitored_channels.items()
+            if info.get('verified_id') is not None
+        ]
+        
+        if not accessible_channels:
+            print("❌ Aucun canal accessible trouvé")
+            print("💡 Vérifiez vos IDs de canaux et votre accès")
+            return
+        
+        print("📡 Canaux surveillés:")
+        for channel_id in accessible_channels:
+            info = self.monitored_channels[channel_id]
+            print(f"   Canal {channel_id}: {info['name']} (TG: {info['verified_id']})")
+        
+        self.is_listening = True
+        
+        # Configurer les gestionnaires d'événements
+        await self._setup_event_handlers()
+        
+        print("✅ Écouteur Telegram démarré!")
+        print("💡 En attente de nouveaux messages...")
+    
+    async def _setup_event_handlers(self):
+        """
+        Configure les gestionnaires d'événements pour les nouveaux messages.
+        """
+        # Liste des IDs de canaux vérifiés à surveiller
+        verified_channel_ids = [
+            info['verified_id'] for info in self.monitored_channels.values()
+            if info.get('verified_id') is not None
+        ]
+        
+        if not verified_channel_ids:
+            print("❌ Aucun canal vérifié à surveiller")
+            return
+        
+        @self.client.on(events.NewMessage(chats=verified_channel_ids))
+        async def handle_new_message(event):
+            """
+            Gestionnaire pour les nouveaux messages.
+            """
+            try:
+                # Identifier le canal source
+                channel_id = self._identify_channel(event.chat_id)
+                if not channel_id:
+                    return
+                
+                message_text = event.message.message
+                message_id = event.message.id
+                sender = await event.get_sender()
+                
+                print(f"\n🆕 Nouveau message détecté dans le Canal {channel_id}")
+                print(f"📝 ID: {message_id}")
+                print(f"📡 Chat ID: {event.chat_id}")
+                
+                # Gérer différents types d'expéditeurs
+                sender_name = self._get_sender_name(sender)
+                print(f"👤 Expéditeur: {sender_name}")
+                
+                print(f"⏰ Timestamp: {event.message.date}")
+                print(f"💬 Contenu:\n{message_text}")
+                
+                # Traiter le message
+                await self._process_message(message_text, channel_id, message_id, sender, event.message.date)
                 
             except Exception as e:
                 print(f"❌ Erreur lors du traitement du message: {e}")
+    
+    def _get_sender_name(self, sender):
+        """
+        Récupère le nom de l'expéditeur selon son type.
+        
+        Args:
+            sender: Objet expéditeur (User, Channel, Chat, etc.)
+            
+        Returns:
+            str: Nom de l'expéditeur
+        """
+        if sender is None:
+            return "Inconnu"
+        
+        try:
+            if isinstance(sender, User):
+                # Utilisateur normal
+                if sender.first_name:
+                    full_name = sender.first_name
+                    if sender.last_name:
+                        full_name += f" {sender.last_name}"
+                    if sender.username:
+                        full_name += f" (@{sender.username})"
+                    return full_name
+                elif sender.username:
+                    return f"@{sender.username}"
+                else:
+                    return f"User {sender.id}"
+            
+            elif isinstance(sender, Channel):
+                # Canal ou supergroupe
+                if sender.title:
+                    title = sender.title
+                    if sender.username:
+                        title += f" (@{sender.username})"
+                    return title
+                elif sender.username:
+                    return f"@{sender.username}"
+                else:
+                    return f"Canal {sender.id}"
+            
+            elif isinstance(sender, Chat):
+                # Groupe normal
+                return sender.title or f"Groupe {sender.id}"
+            
+            else:
+                # Type inconnu
+                return f"Expéditeur {type(sender).__name__} {getattr(sender, 'id', 'inconnu')}"
+                
+        except Exception as e:
+            print(f"⚠️  Erreur lors de la récupération du nom de l'expéditeur: {e}")
+            return f"Erreur ({type(sender).__name__})"
     
     def _identify_channel(self, chat_id):
         """
@@ -56,7 +355,7 @@
                 'original_telegram_id': self.monitored_channels[channel_id]['telegram_id'],
                 'content': message_text,
                 'timestamp': timestamp.isoformat(),
-                'sender': sender.first_name if sender else 'Inconnu',
+                'sender': self._get_sender_name(sender),
                 'processing_result': result is not None,
                 'orders_placed': len(result) if result else 0,
                 'processed_at': datetime.now().isoformat()
