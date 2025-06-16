@@ -1,4 +1,4 @@
 MetaTrader5==5.0.45
-openai==0.28.1
+openai>=1.0.0
 python-dotenv==1.0.0
 telethon==1.29.3

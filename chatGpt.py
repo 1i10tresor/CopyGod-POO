@@ -1,4 +1,4 @@
-import openai
+from openai import OpenAI
 import dotenv
 import os
 import re
@@ -10,6 +10,10 @@ class chatGpt():
         self.gpt_key = os.getenv("GPT_KEY")
         self.signal = signal
         self.channel_id = channel_id
+        
+        # Initialiser le client OpenAI
+        self.client = OpenAI(api_key=self.gpt_key)
+        
         self.prompt = f"""
             Analyse le message de trading suivant et extrais les informations essentielles au format JSON strict.
             
@@ -113,8 +117,7 @@ class chatGpt():
 
     def get_signal(self):
         try:
-            openai.api_key = self.gpt_key
-            response = openai.ChatCompletion.create(
+            response = self.client.chat.completions.create(
                 model="gpt-4-turbo",
                 messages=[{"role": "user", "content": self.prompt}],
                 timeout=30
