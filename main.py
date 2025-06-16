@@ -17,8 +17,26 @@ class TradingBot:
         self.total_risk_eur = total_risk_eur or trading_config.TOTAL_RISK_EUR
         self.max_risk_percentage = max_risk_percentage or trading_config.MAX_RISK_PERCENTAGE
         
-        self.risk_manager = RiskManager(self.total_risk_eur, self.max_risk_percentage)
+        print("🤖 Initialisation du bot de trading...")
+        print("🔄 Connexion à MetaTrader 5...")
+        
+        # Initialiser les composants
         self.order_sender = SendOrder()
+        
+        # Vérifier que la connexion MT5 est établie avant de continuer
+        if not self.order_sender.is_connected:
+            print("❌ Impossible de démarrer le bot sans connexion MT5")
+            raise Exception("Connexion MT5 requise")
+        
+        # Vérifier que nous sommes bien sur le compte démo
+        if not self.order_sender.verify_demo_connection():
+            print("❌ Connexion au compte démo non confirmée")
+            raise Exception("Compte démo requis pour la sécurité")
+        
+        print("✅ Bot de trading initialisé avec succès")
+        
+        # Initialiser les autres composants
+        self.risk_manager = RiskManager(self.total_risk_eur, self.max_risk_percentage)
         self.processed_signals = []
         self.supported_channels = [1, 2]
         
@@ -55,6 +73,12 @@ class TradingBot:
         
         print(f"🔄 Traitement du signal pour le {self.channel_config[channel_id]['name']} (Canal {channel_id})")
         print(f"📝 Format attendu: {self.channel_config[channel_id]['format']}")
+        
+        # VÉRIFICATION OBLIGATOIRE du compte démo avant traitement
+        print("🔍 Vérification de la connexion au compte démo...")
+        if not self.order_sender.verify_demo_connection():
+            print("🚫 TRAITEMENT ANNULÉ - Connexion au compte démo non confirmée")
+            return None
         
         # Créer un objet signal simulé
         class MockSignal:
@@ -100,7 +124,7 @@ class TradingBot:
         
         print(f"✅ Tailles de lot calculées: {lot_sizes}")
         
-        # 5. Placer les ordres sur MT5
+        # 5. Placer les ordres sur MT5 (avec vérification démo intégrée)
         print(f"\n📈 Placement des ordres sur MT5 (Canal {channel_id})...")
         order_results = self.order_sender.place_signal_orders(signals, lot_sizes, channel_id)
         
@@ -113,7 +137,8 @@ class TradingBot:
                 'signals': signals,
                 'lot_sizes': lot_sizes,
                 'orders': order_results,
-                'timestamp': order_results[0]['timestamp'] if order_results else None
+                'timestamp': order_results[0]['timestamp'] if order_results else None,
+                'account_type': 'DEMO'
             }
             self.processed_signals.append(signal_record)
             
@@ -171,6 +196,11 @@ class TradingBot:
         print("RÉSUMÉ DU COMPTE DE TRADING")
         print("=" * 80)
         
+        # Vérifier la connexion démo avant d'afficher les informations
+        if not self.order_sender.verify_demo_connection():
+            print("❌ Impossible d'afficher le résumé - Connexion au compte démo non confirmée")
+            return
+        
         # Informations du compte
         account_info = self.order_sender.get_account_info()
         if account_info:
@@ -205,7 +235,8 @@ class TradingBot:
                 channel_name = signal_record['channel_name']
                 telegram_id = signal_record['telegram_id']
                 orders_count = len(signal_record['orders'])
-                print(f"  {i}. {channel_name} (Canal {channel}, TG: {telegram_id}) - {orders_count} ordres - {signal_record['timestamp']}")
+                account_type = signal_record.get('account_type', 'UNKNOWN')
+                print(f"  {i}. {channel_name} (Canal {channel}, TG: {telegram_id}) - {orders_count} ordres - {account_type} - {signal_record['timestamp']}")
         
         print("=" * 80 + "\n")
     
