@@ -30,13 +30,15 @@ class TelegramListener:
                 'name': 'Canal Standard',
                 'telegram_id': telegram_config.get_channel_id(1),
                 'message_count': 0,
-                'last_message_time': None
+                'last_message_time': None,
+                'entity': None  # Stockera l'entité du canal une fois trouvée
             },
             2: {
                 'name': 'Canal Fourchette',
                 'telegram_id': telegram_config.get_channel_id(2),
                 'message_count': 0,
-                'last_message_time': None
+                'last_message_time': None,
+                'entity': None  # Stockera l'entité du canal une fois trouvée
             }
         }
         
@@ -88,25 +90,86 @@ class TelegramListener:
     
     async def _verify_channel_access(self):
         """
-        Vérifie l'accès aux canaux surveillés.
+        Vérifie l'accès aux canaux surveillés et trouve les bonnes entités.
         """
         print("🔍 Vérification de l'accès aux canaux...")
         
         for channel_id, info in self.monitored_channels.items():
             telegram_id = info['telegram_id']
+            print(f"\n📡 Recherche du Canal {channel_id} ({info['name']})...")
+            print(f"   ID configuré: {telegram_id}")
+            
             try:
-                # Essayer d'obtenir les informations du canal
-                entity = await self.client.get_entity(telegram_id)
-                print(f"✅ Canal {channel_id} ({info['name']}): {entity.title}")
+                # Méthode 1: Essayer avec l'ID direct
+                try:
+                    entity = await self.client.get_entity(telegram_id)
+                    info['entity'] = entity
+                    print(f"✅ Canal trouvé par ID: {entity.title}")
+                    continue
+                except Exception as e1:
+                    print(f"⚠️  Échec avec ID direct: {e1}")
                 
-                # Obtenir les derniers messages pour tester
-                messages = await self.client.get_messages(entity, limit=1)
-                if messages:
-                    print(f"   📨 Dernier message: {messages[0].date}")
+                # Méthode 2: Chercher dans les dialogues
+                print("🔍 Recherche dans vos conversations...")
+                async for dialog in self.client.iter_dialogs():
+                    if dialog.entity.id == telegram_id:
+                        info['entity'] = dialog.entity
+                        print(f"✅ Canal trouvé dans les dialogues: {dialog.title}")
+                        break
+                    # Aussi vérifier par nom si c'est un canal/groupe
+                    if hasattr(dialog.entity, 'title') and dialog.entity.title:
+                        if 'trading' in dialog.entity.title.lower() or 'signal' in dialog.entity.title.lower():
+                            print(f"📋 Canal potentiel trouvé: {dialog.entity.title} (ID: {dialog.entity.id})")
+                
+                if not info['entity']:
+                    print(f"❌ Canal {channel_id} non trouvé")
+                    print(f"💡 Vérifiez que vous avez accès au canal avec l'ID {telegram_id}")
+                    print(f"💡 Ou mettez à jour l'ID dans votre fichier .env")
                 
             except Exception as e:
-                print(f"❌ Erreur d'accès au canal {channel_id} (ID: {telegram_id}): {e}")
-                print(f"💡 Vérifiez que vous avez accès à ce canal")
+                print(f"❌ Erreur lors de la recherche du canal {channel_id}: {e}")
+        
+        # Afficher un résumé
+        accessible_channels = [ch for ch in self.monitored_channels.values() if ch['entity']]
+        print(f"\n📊 Résumé: {len(accessible_channels)}/{len(self.monitored_channels)} canaux accessibles")
+        
+        if len(accessible_channels) == 0:
+            print("⚠️  ATTENTION: Aucun canal accessible!")
+            print("💡 Le système continuera mais ne recevra aucun message")
+            await self._list_available_channels()
+    
+    async def _list_available_channels(self):
+        """
+        Liste tous les canaux/groupes disponibles pour aider à identifier les bons IDs.
+        """
+        print("\n📋 CANAUX/GROUPES DISPONIBLES:")
+        print("=" * 60)
+        
+        try:
+            count = 0
+            async for dialog in self.client.iter_dialogs(limit=50):
+                if hasattr(dialog.entity, 'title') and dialog.entity.title:
+                    # Filtrer les canaux/groupes qui pourraient être des signaux de trading
+                    title_lower = dialog.entity.title.lower()
+                    if any(keyword in title_lower for keyword in ['trading', 'signal', 'forex', 'crypto', 'trade']):
+                        print(f"📡 {dialog.entity.title}")
+                        print(f"   ID: {dialog.entity.id}")
+                        print(f"   Type: {type(dialog.entity).__name__}")
+                        print()
+                        count += 1
+            
+            if count == 0:
+                print("Aucun canal de trading détecté automatiquement.")
+                print("Voici tous vos dialogues récents:")
+                async for dialog in self.client.iter_dialogs(limit=20):
+                    if hasattr(dialog.entity, 'title'):
+                        print(f"📱 {dialog.entity.title} (ID: {dialog.entity.id})")
+        
+        except Exception as e:
+            print(f"❌ Erreur lors de la liste des canaux: {e}")
+        
+        print("=" * 60)
+        print("💡 Copiez l'ID du bon canal dans votre fichier .env")
     
     async def start_listening(self):
         """
@@ -122,10 +185,20 @@ class TelegramListener:
                 print("❌ Impossible de démarrer l'écoute")
                 return
         
+        # Vérifier qu'au moins un canal est accessible
+        accessible_channels = [ch for ch in self.monitored_channels.values() if ch['entity']]
+        if len(accessible_channels) == 0:
+            print("❌ Aucun canal accessible - Impossible de démarrer l'écoute")
+            print("💡 Vérifiez vos IDs de canaux dans le fichier .env")
+            return
+        
         print("🎧 Démarrage de l'écoute en temps réel...")
         print("📡 Canaux surveillés:")
         for channel_id, info in self.monitored_channels.items():
-            print(f"   Canal {channel_id}: {info['name']} (TG: {info['telegram_id']})")
+            if info['entity']:
+                print(f"   ✅ Canal {channel_id}: {info['entity'].title} (ID: {info['telegram_id']})")
+            else:
+                print(f"   ❌ Canal {channel_id}: Non accessible (ID: {info['telegram_id']})")
         
         self.is_listening = True
         
@@ -139,10 +212,14 @@ class TelegramListener:
         """
         Configure les gestionnaires d'événements pour les nouveaux messages.
         """
-        # Liste des IDs de canaux à surveiller
-        channel_ids = [info['telegram_id'] for info in self.monitored_channels.values()]
+        # Récupérer les entités des canaux accessibles
+        accessible_entities = [info['entity'] for info in self.monitored_channels.values() if info['entity']]
         
-        @self.client.on(events.NewMessage(chats=channel_ids))
+        if not accessible_entities:
+            print("⚠️  Aucune entité de canal disponible pour l'écoute")
+            return
+        
+        @self.client.on(events.NewMessage(chats=accessible_entities))
         async def handle_new_message(event):
             """
             Gestionnaire pour les nouveaux messages.
@@ -181,7 +258,7 @@ class TelegramListener:
             int: Numéro du canal (1 ou 2) ou None si non trouvé
         """
         for channel_id, info in self.monitored_channels.items():
-            if info['telegram_id'] == chat_id:
+            if info['entity'] and info['entity'].id == chat_id:
                 return channel_id
         return None
     
@@ -259,10 +336,13 @@ class TelegramListener:
         """
         Retourne le statut de l'écouteur.
         """
+        accessible_channels = len([ch for ch in self.monitored_channels.values() if ch['entity']])
+        
         return {
             'is_listening': self.is_listening,
             'client_connected': self.client is not None and self.client.is_connected(),
             'monitored_channels': self.monitored_channels,
+            'accessible_channels': accessible_channels,
             'total_processed': len(self.processed_messages)
         }
     
@@ -277,12 +357,19 @@ class TelegramListener:
         status = self.get_listener_status()
         print(f"Statut: {'🟢 ACTIF' if status['is_listening'] else '🔴 ARRÊTÉ'}")
         print(f"Client: {'🟢 Connecté' if status['client_connected'] else '🔴 Déconnecté'}")
+        print(f"Canaux accessibles: {status['accessible_channels']}/{len(self.monitored_channels)}")
         print(f"Messages traités: {status['total_processed']}")
         
         print("\nCanaux surveillés:")
         for channel_id, info in status['monitored_channels'].items():
-            print(f"  📡 Canal {channel_id} ({info['name']}): {info['message_count']} messages")
-            print(f"      Telegram ID: {info['telegram_id']}")
+            if info['entity']:
+                print(f"  ✅ Canal {channel_id} ({info['name']}): {info['message_count']} messages")
+                print(f"      Nom: {info['entity'].title}")
+                print(f"      ID: {info['telegram_id']}")
+            else:
+                print(f"  ❌ Canal {channel_id} ({info['name']}): Non accessible")
+                print(f"      ID configuré: {info['telegram_id']}")
+            
             if info['last_message_time']:
                 print(f"      Dernier message: {info['last_message_time']}")
         
