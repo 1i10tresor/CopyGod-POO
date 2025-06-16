@@ -1,6 +1,7 @@
 import MetaTrader5 as mt5
 from datetime import datetime
 import time
+from config import trading_config
 
 class SendOrder:
     def __init__(self):
@@ -13,25 +14,118 @@ class SendOrder:
     
     def _initialize_mt5(self):
         """
-        Initialise la connexion à MetaTrader 5.
+        Initialise la connexion à MetaTrader 5 avec le compte démo spécifique.
         """
         try:
+            # Initialiser MT5
             if not mt5.initialize():
                 print(f"Erreur d'initialisation MT5: {mt5.last_error()}")
                 return False
             
-            self.is_connected = True
-            print("Connexion MT5 établie avec succès")
+            # Récupérer les identifiants du compte démo depuis la configuration
+            credentials = trading_config.get_mt5_credentials()
             
+            if not credentials['login'] or not credentials['password'] or not credentials['server']:
+                print("❌ Identifiants MT5 manquants dans la configuration")
+                print("💡 Vérifiez vos variables MT5_DEMO_LOGIN, MT5_DEMO_MDP, MT5_DEMO_SERVEUR dans .env")
+                return False
+            
+            # Convertir le login en entier si c'est une chaîne
+            try:
+                login = int(credentials['login'])
+            except ValueError:
+                print(f"❌ Login MT5 invalide: {credentials['login']}")
+                return False
+            
+            print(f"🔄 Connexion au compte démo MT5...")
+            print(f"   Login: {login}")
+            print(f"   Serveur: {credentials['server']}")
+            
+            # Se connecter au compte spécifique
+            authorized = mt5.login(
+                login=login,
+                password=credentials['password'],
+                server=credentials['server']
+            )
+            
+            if not authorized:
+                error = mt5.last_error()
+                print(f"❌ Échec de la connexion au compte démo: {error}")
+                print("💡 Vérifiez vos identifiants MT5 dans le fichier .env")
+                return False
+            
+            # Vérifier que nous sommes bien connectés au bon compte
             account_info = mt5.account_info()
-            if account_info:
-                print(f"Compte: {account_info.login}")
-                print(f"Balance: {account_info.balance} {account_info.currency}")
+            if not account_info:
+                print("❌ Impossible d'obtenir les informations du compte")
+                return False
+            
+            # Vérifier que c'est bien un compte démo
+            if account_info.trade_mode != mt5.ACCOUNT_TRADE_MODE_DEMO:
+                print("⚠️  ATTENTION: Ce n'est pas un compte démo!")
+                print(f"   Mode de trading: {account_info.trade_mode}")
+                print("💡 Assurez-vous d'utiliser un compte démo pour les tests")
+            
+            self.is_connected = True
+            print("✅ Connexion MT5 établie avec succès")
+            print(f"   Compte: {account_info.login}")
+            print(f"   Nom: {account_info.name}")
+            print(f"   Serveur: {account_info.server}")
+            print(f"   Balance: {account_info.balance} {account_info.currency}")
+            print(f"   Mode: {'DÉMO' if account_info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO else 'RÉEL'}")
             
             return True
             
         except Exception as e:
-            print(f"Erreur lors de l'initialisation MT5: {e}")
+            print(f"❌ Erreur lors de l'initialisation MT5: {e}")
+            return False
+    
+    def reconnect_to_demo(self):
+        """
+        Force la reconnexion au compte démo.
+        """
+        print("🔄 Reconnexion forcée au compte démo...")
+        
+        # Fermer la connexion actuelle
+        if self.is_connected:
+            mt5.shutdown()
+            self.is_connected = False
+        
+        # Réinitialiser
+        return self._initialize_mt5()
+    
+    def verify_demo_connection(self):
+        """
+        Vérifie que nous sommes bien connectés au compte démo.
+        
+        Returns:
+            bool: True si connecté au bon compte démo
+        """
+        if not self.is_connected:
+            return False
+        
+        try:
+            account_info = mt5.account_info()
+            if not account_info:
+                return False
+            
+            # Vérifier le login
+            expected_login = int(trading_config.get_mt5_credentials()['login'])
+            if account_info.login != expected_login:
+                print(f"⚠️  Connecté au mauvais compte!")
+                print(f"   Attendu: {expected_login}")
+                print(f"   Actuel: {account_info.login}")
+                return False
+            
+            # Vérifier que c'est un compte démo
+            if account_info.trade_mode != mt5.ACCOUNT_TRADE_MODE_DEMO:
+                print(f"⚠️  Ce n'est pas un compte démo! Mode: {account_info.trade_mode}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erreur lors de la vérification du compte: {e}")
             return False
     
     def place_signal_orders(self, signals, lot_sizes, channel_id=1):
@@ -46,6 +140,13 @@ class SendOrder:
         Returns:
             list: Liste des résultats d'ordres
         """
+        # Vérifier la connexion au compte démo avant de placer des ordres
+        if not self.verify_demo_connection():
+            print("❌ Connexion au compte démo invalide")
+            if not self.reconnect_to_demo():
+                print("❌ Impossible de se reconnecter au compte démo")
+                return []
+        
         if channel_id == 1:
             return self._place_channel_1_orders(signals, lot_sizes)
         elif channel_id == 2:
@@ -104,8 +205,8 @@ class SendOrder:
                     "price": price,
                     "sl": sl_price,
                     "tp": tp_price,
-                    "deviation": 20,
-                    "magic": 234000 + i,  # Magic number différent pour chaque ordre
+                    "deviation": trading_config.MT5_DEVIATION,
+                    "magic": trading_config.MT5_MAGIC_BASE + i,
                     "comment": f"Signal Canal 1 - TP{i+1}",
                     "type_time": mt5.ORDER_TIME_GTC,
                     "type_filling": mt5.ORDER_FILLING_IOC,
@@ -194,8 +295,8 @@ class SendOrder:
                     "price": price,
                     "sl": sl_price,
                     "tp": tp_price,
-                    "deviation": 20,
-                    "magic": 235000 + i,  # Magic number différent
+                    "deviation": trading_config.MT5_DEVIATION,
+                    "magic": trading_config.MT5_MAGIC_BASE + 1000 + i,
                     "comment": f"Signal Canal 2 - RR{rr_ratio}",
                     "type_time": mt5.ORDER_TIME_GTC,
                     "type_filling": mt5.ORDER_FILLING_IOC,
@@ -280,7 +381,11 @@ class SendOrder:
                     'equity': account_info.equity,
                     'margin': account_info.margin,
                     'free_margin': account_info.margin_free,
-                    'currency': account_info.currency
+                    'currency': account_info.currency,
+                    'name': account_info.name,
+                    'server': account_info.server,
+                    'trade_mode': account_info.trade_mode,
+                    'is_demo': account_info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO
                 }
             return None
         except Exception as e:

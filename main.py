@@ -175,6 +175,9 @@ class TradingBot:
         account_info = self.order_sender.get_account_info()
         if account_info:
             print(f"Compte MT5: {account_info['login']}")
+            print(f"Nom: {account_info['name']}")
+            print(f"Serveur: {account_info['server']}")
+            print(f"Mode: {'🟢 DÉMO' if account_info['is_demo'] else '🔴 RÉEL'}")
             print(f"Balance: {account_info['balance']:.2f} {account_info['currency']}")
             print(f"Equity: {account_info['equity']:.2f} {account_info['currency']}")
             print(f"Marge libre: {account_info['free_margin']:.2f} {account_info['currency']}")
