@@ -77,42 +77,18 @@ class MessageListener:
         Boucle principale d'écoute des messages.
         """
         print("🔄 Démarrage de la boucle d'écoute...")
+        print("⚠️  ATTENTION: Cette version utilise uniquement la simulation")
+        print("💡 Pour la vraie connexion Telegram, utilisez telegramListener.py")
         
         while self.is_listening:
             try:
-                # Vérifier chaque canal surveillé
-                for channel_id in self.monitored_channels.keys():
-                    new_messages = self._check_channel_for_new_messages(channel_id)
-                    
-                    if new_messages:
-                        for message in new_messages:
-                            self._process_new_message(message, channel_id)
-                
-                # Attendre avant la prochaine vérification
-                time.sleep(2)  # Vérification toutes les 2 secondes
+                # Cette version ne fait que de la simulation
+                # La vraie connexion Telegram est dans telegramListener.py
+                time.sleep(5)  # Attendre 5 secondes
                 
             except Exception as e:
                 print(f"❌ Erreur dans la boucle d'écoute: {e}")
                 time.sleep(5)  # Attendre plus longtemps en cas d'erreur
-    
-    def _check_channel_for_new_messages(self, channel_id):
-        """
-        Vérifie s'il y a de nouveaux messages dans un canal Telegram.
-        
-        Args:
-            channel_id (int): ID du canal à vérifier
-            
-        Returns:
-            list: Liste des nouveaux messages
-        """
-        # TODO: Implémenter la vraie connexion Telegram
-        # Pour l'instant, on utilise la simulation pour les tests
-        
-        # Dans un vrai système, ceci se connecterait à l'API Telegram:
-        # telegram_id = self.monitored_channels[channel_id]['telegram_id']
-        # messages = telegram_client.get_new_messages(telegram_id)
-        
-        return []
     
     def simulate_message(self, channel_id, message_content=None, author="TestUser"):
         """
@@ -241,7 +217,8 @@ class MessageListener:
             'is_listening': self.is_listening,
             'monitored_channels': self.monitored_channels,
             'total_processed': len(self.processed_messages),
-            'thread_alive': self.listener_thread.is_alive() if self.listener_thread else False
+            'thread_alive': self.listener_thread.is_alive() if self.listener_thread else False,
+            'connection_type': 'SIMULATION'
         }
     
     def display_listener_summary(self):
@@ -249,12 +226,13 @@ class MessageListener:
         Affiche un résumé de l'activité de l'écouteur.
         """
         print("\n" + "=" * 80)
-        print("RÉSUMÉ DE L'ÉCOUTEUR DE MESSAGES")
+        print("RÉSUMÉ DE L'ÉCOUTEUR DE MESSAGES (MODE SIMULATION)")
         print("=" * 80)
         
         status = self.get_listener_status()
         print(f"Statut: {'🟢 ACTIF' if status['is_listening'] else '🔴 ARRÊTÉ'}")
         print(f"Thread: {'🟢 Vivant' if status['thread_alive'] else '🔴 Arrêté'}")
+        print(f"Type: 🧪 {status['connection_type']}")
         print(f"Messages traités: {status['total_processed']}")
         
         print("\nCanaux surveillés:")
@@ -270,12 +248,14 @@ class MessageListener:
                 status_icon = "✅" if record['processing_result'] else "❌"
                 print(f"  {status_icon} Canal {record['channel_id']} (TG: {record['telegram_id']}) - {record['orders_placed']} ordres - {record['processed_at']}")
         
+        print("\n💡 Pour la vraie connexion Telegram, utilisez:")
+        print("   python launch_telegram_bot.py")
         print("=" * 80 + "\n")
 
 
 class TradingSystem:
     """
-    Système de trading complet avec écouteur de messages intégré.
+    Système de trading complet avec écouteur de messages intégré (MODE SIMULATION).
     """
     
     def __init__(self, total_risk_eur=None, max_risk_percentage=None):
@@ -290,7 +270,8 @@ class TradingSystem:
         """
         Démarre le système complet (bot + écouteur).
         """
-        print("🚀 Démarrage du système de trading complet...")
+        print("🚀 Démarrage du système de trading complet (MODE SIMULATION)...")
+        print("💡 Pour la vraie connexion Telegram, utilisez: python launch_telegram_bot.py")
         
         # Afficher les configurations
         telegram_config.display_config()
@@ -305,8 +286,8 @@ class TradingSystem:
         self.listener.start_listening()
         
         self.is_running = True
-        print("✅ Système de trading démarré avec succès!")
-        print("💡 Le système surveille maintenant les canaux Telegram et traite automatiquement les signaux.")
+        print("✅ Système de trading démarré avec succès (MODE SIMULATION)!")
+        print("💡 Utilisez les fonctions simulate_* pour tester le système.")
     
     def stop_system(self):
         """
@@ -355,6 +336,7 @@ class TradingSystem:
         """
         return {
             'system_running': self.is_running,
+            'connection_type': 'SIMULATION',
             'bot_status': {
                 'processed_signals': len(self.bot.processed_signals),
                 'supported_channels': self.bot.supported_channels
@@ -367,12 +349,13 @@ class TradingSystem:
         Affiche un résumé complet du système.
         """
         print("\n" + "=" * 100)
-        print("RÉSUMÉ COMPLET DU SYSTÈME DE TRADING")
+        print("RÉSUMÉ COMPLET DU SYSTÈME DE TRADING (MODE SIMULATION)")
         print("=" * 100)
         
         # Statut du système
         status = self.get_system_status()
         print(f"Système: {'🟢 ACTIF' if status['system_running'] else '🔴 ARRÊTÉ'}")
+        print(f"Type: 🧪 {status['connection_type']}")
         
         # Résumé du bot
         self.bot.get_account_summary()
@@ -380,6 +363,8 @@ class TradingSystem:
         # Résumé de l'écouteur
         self.listener.display_listener_summary()
         
+        print("💡 POUR LA VRAIE CONNEXION TELEGRAM:")
+        print("   python launch_telegram_bot.py")
         print("=" * 100 + "\n")
 
 

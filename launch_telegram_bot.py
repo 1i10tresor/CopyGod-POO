@@ -1,6 +1,6 @@
 """
 Script de lancement du système de trading Telegram.
-Utilise ce script pour démarrer le bot en temps réel.
+Utilise ce script pour démarrer le bot en temps réel avec la vraie connexion Telegram.
 """
 
 import asyncio
@@ -20,6 +20,7 @@ def print_startup_info():
     print("  ✅ Placement automatique des ordres MT5")
     print("  ✅ Gestion avancée des risques")
     print("  ✅ Support de 2 formats de canaux")
+    print("  ✅ Connexion forcée au compte démo")
     print()
     print("🔧 Configuration requise:")
     print("  📁 Fichier .env avec vos identifiants")
@@ -31,6 +32,7 @@ def print_startup_info():
     print("  - Le système va se connecter avec VOTRE compte Telegram")
     print("  - Assurez-vous d'avoir accès aux canaux surveillés")
     print("  - Vérifiez votre configuration MT5 avant de commencer")
+    print("  - Le système se connectera OBLIGATOIREMENT au compte démo")
     print("=" * 80)
     print()
 
@@ -65,7 +67,7 @@ async def launch_system():
     print("⚠️  Le système va:")
     print("   1. Se connecter à votre compte Telegram")
     print("   2. Surveiller les canaux configurés")
-    print("   3. Placer des ordres réels sur MT5")
+    print("   3. Placer des ordres réels sur MT5 (compte démo)")
     print()
     
     response = input("Continuer ? (oui/non): ").lower().strip()
