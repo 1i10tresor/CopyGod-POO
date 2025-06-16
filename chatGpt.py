@@ -11,7 +11,7 @@ class chatGpt():
         self.signal = signal
         self.channel_id = channel_id
         
-        # Initialiser le client OpenAI
+        # Initialiser le client OpenAI avec la nouvelle API
         self.client = OpenAI(api_key=self.gpt_key)
         
         self.prompt = f"""
@@ -117,6 +117,7 @@ class chatGpt():
 
     def get_signal(self):
         try:
+            # Utiliser la nouvelle API OpenAI v1.0+
             response = self.client.chat.completions.create(
                 model="gpt-4-turbo",
                 messages=[{"role": "user", "content": self.prompt}],
@@ -130,7 +131,7 @@ class chatGpt():
     @staticmethod
     def signal_cleaner(response):
         try:
-            # Extraire le JSON de la réponse
+            # Extraire le JSON de la réponse avec la nouvelle structure
             content = response.choices[0].message.content
             match = re.search(r'\{.*?\}', content, re.DOTALL)
             if match:
