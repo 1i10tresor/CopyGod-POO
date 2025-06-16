@@ -2,6 +2,7 @@ from signalPaser import SignalProcessor
 from riskManager import RiskManager
 from order import SendOrder
 from config import telegram_config, trading_config
+import MetaTrader5 as mt5
 
 class TradingBot:
     def __init__(self, total_risk_eur=None, max_risk_percentage=None):
@@ -145,6 +146,23 @@ class TradingBot:
         print("  bot.process_signal(signal_text, channel_id=1)  # Canal spécifique OBLIGATOIRE")
         print("=" * 80 + "\n")
     
+    def _get_position_type_string(self, position_type):
+        """
+        Convertit le type de position MT5 en string lisible.
+        
+        Args:
+            position_type (int): Type de position MT5
+            
+        Returns:
+            str: Type de position en string
+        """
+        if position_type == mt5.ORDER_TYPE_BUY:
+            return "BUY"
+        elif position_type == mt5.ORDER_TYPE_SELL:
+            return "SELL"
+        else:
+            return f"TYPE_{position_type}"
+    
     def get_account_summary(self):
         """
         Affiche un résumé complet du compte et des positions.
@@ -167,8 +185,10 @@ class TradingBot:
         
         if positions:
             for i, pos in enumerate(positions, 1):
+                # Utiliser notre fonction pour convertir le type
+                position_type = self._get_position_type_string(pos.type)
                 profit_loss = "+" if pos.profit >= 0 else ""
-                print(f"  {i}. {pos.symbol} - {pos.type_str} - {pos.volume} lots - P&L: {profit_loss}{pos.profit:.2f}")
+                print(f"  {i}. {pos.symbol} - {position_type} - {pos.volume} lots - P&L: {profit_loss}{pos.profit:.2f}")
         
         # Statistiques de risque
         self.risk_manager.display_risk_status(self.order_sender)
