@@ -213,6 +213,44 @@ class SendOrder:
         print("🛑 Opération annulée pour votre sécurité")
         return False
     
+    def _determine_order_type_and_action(self, entry_price, current_price, sens):
+        """
+        Détermine le type d'ordre et l'action selon les prix.
+        
+        Args:
+            entry_price (float): Prix d'entrée souhaité
+            current_price (float): Prix actuel du marché
+            sens (str): Direction BUY ou SELL
+        
+        Returns:
+            tuple: (order_type, action, execution_price)
+        """
+        # Tolérance pour considérer les prix comme égaux (en points)
+        tolerance = 0.0001  # 0.1 pip pour la plupart des paires
+        
+        if abs(entry_price - current_price) <= tolerance:
+            # Prix très proche, ordre au marché
+            if sens == 'BUY':
+                return mt5.ORDER_TYPE_BUY, mt5.TRADE_ACTION_DEAL, current_price
+            else:
+                return mt5.ORDER_TYPE_SELL, mt5.TRADE_ACTION_DEAL, current_price
+        
+        # Prix différent, ordre en attente
+        if sens == 'BUY':
+            if entry_price < current_price:
+                # BUY LIMIT (acheter moins cher)
+                return mt5.ORDER_TYPE_BUY_LIMIT, mt5.TRADE_ACTION_PENDING, entry_price
+            else:
+                # BUY STOP (acheter plus cher)
+                return mt5.ORDER_TYPE_BUY_STOP, mt5.TRADE_ACTION_PENDING, entry_price
+        else:  # SELL
+            if entry_price > current_price:
+                # SELL LIMIT (vendre plus cher)
+                return mt5.ORDER_TYPE_SELL_LIMIT, mt5.TRADE_ACTION_PENDING, entry_price
+            else:
+                # SELL STOP (vendre moins cher)
+                return mt5.ORDER_TYPE_SELL_STOP, mt5.TRADE_ACTION_PENDING, entry_price
+    
     def place_signal_orders(self, signals, lot_sizes, channel_id=1):
         """
         Place tous les ordres pour un signal complet.
@@ -264,6 +302,16 @@ class SendOrder:
                 print(f"❌ Symbole {symbol} non disponible")
                 return []
             
+            # Obtenir le prix actuel
+            tick = mt5.symbol_info_tick(symbol)
+            if not tick:
+                print(f"❌ Impossible d'obtenir le tick pour {symbol}")
+                return []
+            
+            current_price = tick.ask if sens == 'BUY' else tick.bid
+            print(f"💰 Prix actuel: {current_price}")
+            print(f"🎯 Prix d'entrée souhaité: {entry_price}")
+            
             print(f"📈 Placement de 3 ordres pour {symbol} {sens} (Canal 1)")
             
             # Placer un ordre pour chaque TP
@@ -274,17 +322,21 @@ class SendOrder:
                 lot_size = lot_sizes[i]
                 tp_price = tps[i]
                 
-                # Déterminer le type d'ordre
-                order_type = mt5.ORDER_TYPE_BUY if sens == 'BUY' else mt5.ORDER_TYPE_SELL
+                # Déterminer le type d'ordre selon les prix
+                order_type, action, execution_price = self._determine_order_type_and_action(
+                    entry_price, current_price, sens
+                )
                 
-                # Prix d'entrée
-                if entry_price:
-                    price = entry_price
-                    action = mt5.TRADE_ACTION_PENDING
-                else:
-                    tick = mt5.symbol_info_tick(symbol)
-                    price = tick.ask if sens == 'BUY' else tick.bid
-                    action = mt5.TRADE_ACTION_DEAL
+                order_type_name = {
+                    mt5.ORDER_TYPE_BUY: "BUY (Marché)",
+                    mt5.ORDER_TYPE_SELL: "SELL (Marché)",
+                    mt5.ORDER_TYPE_BUY_LIMIT: "BUY LIMIT",
+                    mt5.ORDER_TYPE_BUY_STOP: "BUY STOP",
+                    mt5.ORDER_TYPE_SELL_LIMIT: "SELL LIMIT",
+                    mt5.ORDER_TYPE_SELL_STOP: "SELL STOP"
+                }.get(order_type, f"TYPE_{order_type}")
+                
+                print(f"🔍 Ordre TP{i+1}: {order_type_name} à {execution_price}")
                 
                 # Préparer la requête
                 request = {
@@ -292,7 +344,7 @@ class SendOrder:
                     "symbol": symbol,
                     "volume": lot_size,
                     "type": order_type,
-                    "price": price,
+                    "price": execution_price,
                     "sl": sl_price,
                     "tp": tp_price,
                     "deviation": trading_config.MT5_DEVIATION,
@@ -302,11 +354,20 @@ class SendOrder:
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
                 
+                print(f"📋 Requête d'ordre TP{i+1}: {request}")
+                
                 # Envoyer l'ordre
                 result = mt5.order_send(request)
                 
+                # Vérifier si le résultat est None
+                if result is None:
+                    error = mt5.last_error()
+                    print(f"❌ Ordre TP{i+1} - Résultat None. Erreur MT5: {error}")
+                    continue
+                
                 if result.retcode != mt5.TRADE_RETCODE_DONE:
                     print(f"❌ Erreur ordre TP{i+1}: {result.retcode} - {result.comment}")
+                    print(f"   Détails: {result}")
                     continue
                 
                 # Créer les détails de l'ordre
@@ -314,12 +375,13 @@ class SendOrder:
                     'timestamp': datetime.now().isoformat(),
                     'symbol': symbol,
                     'type': sens,
-                    'entry_price': price,
+                    'entry_price': execution_price,
                     'lot_size': lot_size,
                     'stop_loss': sl_price,
                     'take_profit': tp_price,
                     'tp_number': i + 1,
                     'status': 'FILLED' if action == mt5.TRADE_ACTION_DEAL else 'PENDING',
+                    'order_type': order_type_name,
                     'mt5_order_id': result.order,
                     'mt5_deal_id': result.deal if hasattr(result, 'deal') else None,
                     'channel_id': 1,
@@ -329,7 +391,7 @@ class SendOrder:
                 results.append(order_details)
                 self.orders_history.append(order_details)
                 
-                print(f"✅ Ordre TP{i+1} placé: {lot_size} lots à {tp_price}")
+                print(f"✅ Ordre TP{i+1} placé: {lot_size} lots à {execution_price} → TP {tp_price}")
                 time.sleep(0.1)  # Petite pause entre les ordres
             
             if results:
@@ -339,6 +401,8 @@ class SendOrder:
             
         except Exception as e:
             print(f"❌ Erreur lors du placement des ordres canal 1: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def _place_channel_2_orders(self, signals, lot_sizes):
@@ -378,7 +442,7 @@ class SendOrder:
                 
                 print(f"📊 Info symbole: digits={symbol_info.digits}, point={symbol_info.point}")
                 
-                # Obtenir le prix actuel pour comparaison
+                # Obtenir le prix actuel
                 tick = mt5.symbol_info_tick(symbol)
                 if not tick:
                     print(f"❌ Impossible d'obtenir le tick pour {symbol}")
@@ -386,39 +450,32 @@ class SendOrder:
                 
                 current_price = tick.ask if sens == 'BUY' else tick.bid
                 print(f"💰 Prix actuel: {current_price}")
+                print(f"🎯 Prix d'entrée souhaité: {entry_price}")
                 
-                # Vérifier si les prix sont cohérents
-                if abs(entry_price - current_price) > current_price * 0.1:  # Plus de 10% d'écart
-                    print(f"⚠️  ATTENTION: Prix d'entrée ({entry_price}) très différent du prix actuel ({current_price})")
-                    print(f"   Écart: {abs(entry_price - current_price):.2f} ({abs(entry_price - current_price)/current_price*100:.1f}%)")
-                    
-                    # Utiliser le prix actuel au lieu du prix calculé
-                    print(f"🔄 Utilisation du prix actuel pour l'ordre")
-                    entry_price = current_price
-                    
-                    # Recalculer le TP avec le nouveau prix d'entrée
-                    sl_distance = abs(entry_price - sl_price)
-                    if sens == 'BUY':
-                        tp_price = entry_price + (sl_distance * rr_ratio)
-                    else:
-                        tp_price = entry_price - (sl_distance * rr_ratio)
-                    
-                    print(f"🔄 Nouveau TP calculé: {tp_price}")
+                # Déterminer le type d'ordre selon les prix
+                order_type, action, execution_price = self._determine_order_type_and_action(
+                    entry_price, current_price, sens
+                )
                 
-                # Type d'ordre
-                order_type = mt5.ORDER_TYPE_BUY if sens == 'BUY' else mt5.ORDER_TYPE_SELL
+                order_type_name = {
+                    mt5.ORDER_TYPE_BUY: "BUY (Marché)",
+                    mt5.ORDER_TYPE_SELL: "SELL (Marché)",
+                    mt5.ORDER_TYPE_BUY_LIMIT: "BUY LIMIT",
+                    mt5.ORDER_TYPE_BUY_STOP: "BUY STOP",
+                    mt5.ORDER_TYPE_SELL_LIMIT: "SELL LIMIT",
+                    mt5.ORDER_TYPE_SELL_STOP: "SELL STOP"
+                }.get(order_type, f"TYPE_{order_type}")
                 
-                # Utiliser le prix actuel pour un ordre au marché
-                price = current_price
-                action = mt5.TRADE_ACTION_DEAL
+                print(f"📋 Type d'ordre: {order_type_name}")
+                print(f"💲 Prix d'exécution: {execution_price}")
                 
-                # Préparer la requête avec validation des prix
+                # Préparer la requête
                 request = {
                     "action": action,
                     "symbol": symbol,
                     "volume": lot_size,
                     "type": order_type,
-                    "price": price,
+                    "price": execution_price,
                     "sl": sl_price,
                     "tp": tp_price,
                     "deviation": trading_config.MT5_DEVIATION,
@@ -450,13 +507,14 @@ class SendOrder:
                     'timestamp': datetime.now().isoformat(),
                     'symbol': symbol,
                     'type': sens,
-                    'entry_price': price,
+                    'entry_price': execution_price,
                     'lot_size': lot_size,
                     'stop_loss': sl_price,
                     'take_profit': tp_price,
                     'rr_ratio': rr_ratio,
                     'order_index': i + 1,
                     'status': 'FILLED' if action == mt5.TRADE_ACTION_DEAL else 'PENDING',
+                    'order_type': order_type_name,
                     'mt5_order_id': result.order,
                     'mt5_deal_id': result.deal if hasattr(result, 'deal') else None,
                     'channel_id': 2,
@@ -466,7 +524,7 @@ class SendOrder:
                 results.append(order_details)
                 self.orders_history.append(order_details)
                 
-                print(f"✅ Ordre RR{rr_ratio} placé: {lot_size} lots, entrée {price}, TP {tp_price}")
+                print(f"✅ Ordre RR{rr_ratio} placé: {lot_size} lots, {order_type_name} à {execution_price} → TP {tp_price}")
                 time.sleep(0.1)
             
             if results:
@@ -501,6 +559,7 @@ class SendOrder:
                 print(f"Ordre {i} - TP{order['tp_number']}: {order['lot_size']} lots → {order['take_profit']}")
             else:
                 print(f"Ordre {i} - RR{order['rr_ratio']}: {order['lot_size']} lots → {order['take_profit']}")
+            print(f"  Type: {order.get('order_type', 'N/A')} | Prix: {order['entry_price']}")
             print(f"  ID MT5: {order['mt5_order_id']} | Statut: {order['status']}")
         
         print("=" * 70 + "\n")
