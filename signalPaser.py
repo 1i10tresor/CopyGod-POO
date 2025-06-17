@@ -41,12 +41,48 @@ class SignalProcessor:
             print(f"Canal {self.channel_id} non supporté")
             return None
     
+    def _adjust_entry_prices(self, signal):
+        """
+        Ajoute 0.01 à tous les prix d'entrée pour éviter les problèmes MT5.
+        
+        Args:
+            signal (dict): Signal à ajuster
+        
+        Returns:
+            dict: Signal avec prix ajustés
+        """
+        adjustment = 0.01
+        
+        # Ajuster le prix d'entrée principal
+        if 'entry_price' in signal and signal['entry_price'] is not None:
+            original_price = signal['entry_price']
+            signal['entry_price'] = round(original_price + adjustment, 2)
+            print(f"💡 Prix d'entrée ajusté: {original_price} → {signal['entry_price']} (+{adjustment})")
+        
+        # Ajuster les prix d'entrée multiples (canal 2)
+        if 'entry_prices' in signal and signal['entry_prices']:
+            original_prices = signal['entry_prices'].copy()
+            adjusted_prices = []
+            for price in original_prices:
+                adjusted_price = round(price + adjustment, 2)
+                adjusted_prices.append(adjusted_price)
+            
+            signal['entry_prices'] = adjusted_prices
+            print(f"💡 Prix d'entrée ajustés: {original_prices} → {adjusted_prices} (+{adjustment} chacun)")
+        
+        return signal
+    
     def _process_channel_1(self, signal):
         """
         Traite un signal du canal 1 (format standard avec 3 TPs).
         """
         # Vérifier et corriger le signal pour le canal 1
         validated_signal = self._validate_channel_1_signal(signal)
+        
+        if validated_signal:
+            # Ajuster les prix d'entrée
+            validated_signal = self._adjust_entry_prices(validated_signal)
+        
         return validated_signal
     
     def _process_channel_2(self, signal):
@@ -55,6 +91,12 @@ class SignalProcessor:
         """
         # Adapter le signal pour le canal 2
         adapted_signal = self._adapt_channel_2_signal(signal)
+        
+        if adapted_signal:
+            # Ajuster les prix d'entrée pour chaque ordre
+            for i, order_signal in enumerate(adapted_signal):
+                adapted_signal[i] = self._adjust_entry_prices(order_signal)
+        
         return adapted_signal
     
     def _validate_channel_1_signal(self, signal):
