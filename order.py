@@ -256,7 +256,6 @@ class SendOrder:
                 'current_ask': tick.ask,
                 'spread': tick.ask - tick.bid,
                 'trade_mode': symbol_info.trade_mode,
-                'trade_execution': symbol_info.trade_execution,
                 'filling_mode': symbol_info.filling_mode
             }
             
