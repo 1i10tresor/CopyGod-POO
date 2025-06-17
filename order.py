@@ -263,6 +263,22 @@ class SendOrder:
             print(f"❌ Erreur lors de la récupération des infos pour {symbol}: {e}")
             return None
     
+    def _apply_price_adjustment(self, price, digits=2):
+        """
+        Applique un ajustement de +0.01 au prix d'entrée pour éviter les erreurs MT5.
+        
+        Args:
+            price (float): Prix original
+            digits (int): Nombre de décimales du symbole
+        
+        Returns:
+            float: Prix ajusté
+        """
+        adjustment = 0.01
+        adjusted_price = round(price + adjustment, digits)
+        print(f"💡 Prix ajusté: {price} → {adjusted_price} (+{adjustment})")
+        return adjusted_price
+    
     def _validate_order_request(self, request, symbol_info_dict):
         """
         Valide une requête d'ordre avant envoi et suggère des corrections.
@@ -478,6 +494,9 @@ class SendOrder:
             print(f"💰 Prix de référence pour {sens}: {current_price}")
             print(f"🎯 Prix d'entrée souhaité: {entry_price}")
             
+            # Appliquer l'ajustement de prix
+            adjusted_entry_price = self._apply_price_adjustment(entry_price, symbol_info_dict['digits'])
+            
             print(f"📈 Placement de 3 ordres pour {symbol} {sens} (Canal 1)")
             
             # Placer un ordre pour chaque TP
@@ -491,7 +510,7 @@ class SendOrder:
                 print(f"\n🔍 Ordre TP{i+1}: {lot_size} lots → TP {tp_price}")
                 
                 # Déterminer le type d'ordre selon les prix
-                if abs(entry_price - current_price) <= 5 * symbol_info_dict['point']:
+                if abs(adjusted_entry_price - current_price) <= 5 * symbol_info_dict['point']:
                     # Prix très proche, ordre au marché
                     order_type = mt5.ORDER_TYPE_BUY if sens == 'BUY' else mt5.ORDER_TYPE_SELL
                     action = mt5.TRADE_ACTION_DEAL
@@ -500,14 +519,14 @@ class SendOrder:
                 else:
                     # Ordre en attente
                     if sens == 'BUY':
-                        if entry_price < current_price:
+                        if adjusted_entry_price < current_price:
                             order_type = mt5.ORDER_TYPE_BUY_LIMIT
                             order_type_name = "BUY LIMIT"
                         else:
                             order_type = mt5.ORDER_TYPE_BUY_STOP
                             order_type_name = "BUY STOP"
                     else:  # SELL
-                        if entry_price > current_price:
+                        if adjusted_entry_price > current_price:
                             order_type = mt5.ORDER_TYPE_SELL_LIMIT
                             order_type_name = "SELL LIMIT"
                         else:
@@ -515,7 +534,7 @@ class SendOrder:
                             order_type_name = "SELL STOP"
                     
                     action = mt5.TRADE_ACTION_PENDING
-                    execution_price = entry_price
+                    execution_price = adjusted_entry_price
                 
                 print(f"📋 Type d'ordre: {order_type_name}")
                 print(f"💲 Prix d'exécution: {execution_price}")
@@ -637,8 +656,11 @@ class SendOrder:
                 print(f"💰 Prix de référence pour {sens}: {current_price}")
                 print(f"🎯 Prix d'entrée souhaité: {entry_price}")
                 
+                # Appliquer l'ajustement de prix
+                adjusted_entry_price = self._apply_price_adjustment(entry_price, symbol_info_dict['digits'])
+                
                 # Déterminer le type d'ordre selon les prix
-                if abs(entry_price - current_price) <= 5 * symbol_info_dict['point']:
+                if abs(adjusted_entry_price - current_price) <= 5 * symbol_info_dict['point']:
                     # Prix très proche, ordre au marché
                     order_type = mt5.ORDER_TYPE_BUY if sens == 'BUY' else mt5.ORDER_TYPE_SELL
                     action = mt5.TRADE_ACTION_DEAL
@@ -647,14 +669,14 @@ class SendOrder:
                 else:
                     # Ordre en attente
                     if sens == 'BUY':
-                        if entry_price < current_price:
+                        if adjusted_entry_price < current_price:
                             order_type = mt5.ORDER_TYPE_BUY_LIMIT
                             order_type_name = "BUY LIMIT"
                         else:
                             order_type = mt5.ORDER_TYPE_BUY_STOP
                             order_type_name = "BUY STOP"
                     else:  # SELL
-                        if entry_price > current_price:
+                        if adjusted_entry_price > current_price:
                             order_type = mt5.ORDER_TYPE_SELL_LIMIT
                             order_type_name = "SELL LIMIT"
                         else:
@@ -662,7 +684,7 @@ class SendOrder:
                             order_type_name = "SELL STOP"
                     
                     action = mt5.TRADE_ACTION_PENDING
-                    execution_price = entry_price
+                    execution_price = adjusted_entry_price
                 
                 print(f"📋 Type d'ordre: {order_type_name}")
                 print(f"💲 Prix d'exécution: {execution_price}")
