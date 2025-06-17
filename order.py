@@ -539,13 +539,16 @@ class SendOrder:
                 print(f"📋 Type d'ordre: {order_type_name}")
                 print(f"💲 Prix d'exécution: {execution_price}")
                 
-                # Préparer la requête
+                # Préparer la requête avec ajustement forcé du prix
+                base_price = execution_price
+                final_price = round(base_price + 0.01, symbol_info_dict['digits'])  # AJUSTEMENT FORCÉ
+                
                 request = {
                     "action": action,
                     "symbol": symbol,
                     "volume": lot_size,
                     "type": order_type,
-                    "price": execution_price,
+                    "price": final_price,  # Prix avec ajustement forcé
                     "sl": sl_price,
                     "tp": tp_price,
                     "deviation": trading_config.MT5_DEVIATION,
@@ -554,6 +557,8 @@ class SendOrder:
                     "type_time": mt5.ORDER_TIME_GTC,
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
+                
+                print(f"🔧 Prix de base: {base_price} → Prix final: {final_price} (+0.01 forcé)")
                 
                 # Valider et corriger la requête
                 corrected_request, is_valid, diagnostics = self._validate_order_request(request, symbol_info_dict)
@@ -589,7 +594,7 @@ class SendOrder:
                     'timestamp': datetime.now().isoformat(),
                     'symbol': symbol,
                     'type': sens,
-                    'entry_price': execution_price,
+                    'entry_price': final_price,  # Utiliser le prix final
                     'lot_size': corrected_request['volume'],
                     'stop_loss': corrected_request['sl'],
                     'take_profit': corrected_request['tp'],
@@ -605,7 +610,7 @@ class SendOrder:
                 results.append(order_details)
                 self.orders_history.append(order_details)
                 
-                print(f"✅ Ordre TP{i+1} placé: {corrected_request['volume']} lots à {execution_price} → TP {corrected_request['tp']}")
+                print(f"✅ Ordre TP{i+1} placé: {corrected_request['volume']} lots à {final_price} → TP {corrected_request['tp']}")
                 time.sleep(0.1)  # Petite pause entre les ordres
             
             if results:
@@ -689,13 +694,16 @@ class SendOrder:
                 print(f"📋 Type d'ordre: {order_type_name}")
                 print(f"💲 Prix d'exécution: {execution_price}")
                 
-                # Préparer la requête
+                # Préparer la requête avec ajustement forcé du prix
+                base_price = execution_price
+                final_price = round(base_price + 0.01, symbol_info_dict['digits'])  # AJUSTEMENT FORCÉ
+                
                 request = {
                     "action": action,
                     "symbol": symbol,
                     "volume": lot_size,
                     "type": order_type,
-                    "price": execution_price,
+                    "price": final_price,  # Prix avec ajustement forcé
                     "sl": sl_price,
                     "tp": tp_price,
                     "deviation": trading_config.MT5_DEVIATION,
@@ -704,6 +712,8 @@ class SendOrder:
                     "type_time": mt5.ORDER_TIME_GTC,
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
+                
+                print(f"🔧 Prix de base: {base_price} → Prix final: {final_price} (+0.01 forcé)")
                 
                 # Valider et corriger la requête
                 corrected_request, is_valid, diagnostics = self._validate_order_request(request, symbol_info_dict)
@@ -740,7 +750,7 @@ class SendOrder:
                     'timestamp': datetime.now().isoformat(),
                     'symbol': symbol,
                     'type': sens,
-                    'entry_price': execution_price,
+                    'entry_price': final_price,  # Utiliser le prix final
                     'lot_size': corrected_request['volume'],
                     'stop_loss': corrected_request['sl'],
                     'take_profit': corrected_request['tp'],
@@ -757,7 +767,7 @@ class SendOrder:
                 results.append(order_details)
                 self.orders_history.append(order_details)
                 
-                print(f"✅ Ordre RR{rr_ratio} placé: {corrected_request['volume']} lots, {order_type_name} à {execution_price} → TP {corrected_request['tp']}")
+                print(f"✅ Ordre RR{rr_ratio} placé: {corrected_request['volume']} lots, {order_type_name} à {final_price} → TP {corrected_request['tp']}")
                 time.sleep(0.1)
             
             if results:
