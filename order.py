@@ -362,24 +362,57 @@ class SendOrder:
                 sens = signal['sens']
                 rr_ratio = signal['rr_ratio']
                 
+                print(f"🔍 Traitement ordre {i+1}: {symbol} {sens}")
+                print(f"   Entrée: {entry_price}, SL: {sl_price}, TP: {tp_price}")
+                
                 # Vérifier le symbole
                 if not mt5.symbol_select(symbol, True):
                     print(f"❌ Symbole {symbol} non disponible")
                     continue
                 
+                # Obtenir les informations du symbole pour validation
+                symbol_info = mt5.symbol_info(symbol)
+                if not symbol_info:
+                    print(f"❌ Impossible d'obtenir les informations pour {symbol}")
+                    continue
+                
+                print(f"📊 Info symbole: digits={symbol_info.digits}, point={symbol_info.point}")
+                
+                # Obtenir le prix actuel pour comparaison
+                tick = mt5.symbol_info_tick(symbol)
+                if not tick:
+                    print(f"❌ Impossible d'obtenir le tick pour {symbol}")
+                    continue
+                
+                current_price = tick.ask if sens == 'BUY' else tick.bid
+                print(f"💰 Prix actuel: {current_price}")
+                
+                # Vérifier si les prix sont cohérents
+                if abs(entry_price - current_price) > current_price * 0.1:  # Plus de 10% d'écart
+                    print(f"⚠️  ATTENTION: Prix d'entrée ({entry_price}) très différent du prix actuel ({current_price})")
+                    print(f"   Écart: {abs(entry_price - current_price):.2f} ({abs(entry_price - current_price)/current_price*100:.1f}%)")
+                    
+                    # Utiliser le prix actuel au lieu du prix calculé
+                    print(f"🔄 Utilisation du prix actuel pour l'ordre")
+                    entry_price = current_price
+                    
+                    # Recalculer le TP avec le nouveau prix d'entrée
+                    sl_distance = abs(entry_price - sl_price)
+                    if sens == 'BUY':
+                        tp_price = entry_price + (sl_distance * rr_ratio)
+                    else:
+                        tp_price = entry_price - (sl_distance * rr_ratio)
+                    
+                    print(f"🔄 Nouveau TP calculé: {tp_price}")
+                
                 # Type d'ordre
                 order_type = mt5.ORDER_TYPE_BUY if sens == 'BUY' else mt5.ORDER_TYPE_SELL
                 
-                # Prix d'entrée
-                if entry_price:
-                    price = entry_price
-                    action = mt5.TRADE_ACTION_PENDING
-                else:
-                    tick = mt5.symbol_info_tick(symbol)
-                    price = tick.ask if sens == 'BUY' else tick.bid
-                    action = mt5.TRADE_ACTION_DEAL
+                # Utiliser le prix actuel pour un ordre au marché
+                price = current_price
+                action = mt5.TRADE_ACTION_DEAL
                 
-                # Préparer la requête
+                # Préparer la requête avec validation des prix
                 request = {
                     "action": action,
                     "symbol": symbol,
@@ -395,11 +428,21 @@ class SendOrder:
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
                 
+                print(f"📋 Requête d'ordre: {request}")
+                
                 # Envoyer l'ordre
                 result = mt5.order_send(request)
                 
+                # Vérifier si le résultat est None
+                if result is None:
+                    error = mt5.last_error()
+                    print(f"❌ Ordre {i+1} - Résultat None. Erreur MT5: {error}")
+                    continue
+                
+                # Vérifier le code de retour
                 if result.retcode != mt5.TRADE_RETCODE_DONE:
                     print(f"❌ Erreur ordre RR{rr_ratio}: {result.retcode} - {result.comment}")
+                    print(f"   Détails: {result}")
                     continue
                 
                 # Créer les détails de l'ordre
@@ -423,7 +466,7 @@ class SendOrder:
                 results.append(order_details)
                 self.orders_history.append(order_details)
                 
-                print(f"✅ Ordre RR{rr_ratio} placé: {lot_size} lots, entrée {entry_price}, TP {tp_price}")
+                print(f"✅ Ordre RR{rr_ratio} placé: {lot_size} lots, entrée {price}, TP {tp_price}")
                 time.sleep(0.1)
             
             if results:
@@ -433,6 +476,8 @@ class SendOrder:
             
         except Exception as e:
             print(f"❌ Erreur lors du placement des ordres canal 2: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def _display_signal_orders(self, orders):
