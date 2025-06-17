@@ -3,6 +3,7 @@ from riskManager import RiskManager
 from order import SendOrder
 from config import telegram_config, trading_config
 import MetaTrader5 as mt5
+import time
 
 class TradingBot:
     def __init__(self, total_risk_eur=None, max_risk_percentage=None):
@@ -56,13 +57,15 @@ class TradingBot:
             }
         }
     
-    def process_signal(self, signal_text, channel_id):
+    def process_signal(self, signal_text, channel_id, max_retries=2):
         """
         Traite un signal de trading complet selon le canal spécifié.
+        Avec système de retry si tous les ordres échouent.
         
         Args:
             signal_text (str): Texte du signal à traiter
             channel_id (int): ID du canal (1 ou 2) - OBLIGATOIRE
+            max_retries (int): Nombre maximum de tentatives (défaut: 2)
         
         Returns:
             list: Liste des ordres placés ou None si échec
@@ -74,83 +77,116 @@ class TradingBot:
         print(f"🔄 Traitement du signal pour le {self.channel_config[channel_id]['name']} (Canal {channel_id})")
         print(f"📝 Format attendu: {self.channel_config[channel_id]['format']}")
         
-        # VÉRIFICATION OBLIGATOIRE du compte démo avant traitement
-        print("🔍 Vérification de la connexion au compte démo...")
-        if not self.order_sender.verify_demo_connection():
-            print("🚫 TRAITEMENT ANNULÉ - Connexion au compte démo non confirmée")
-            return None
-        
-        # Créer un objet signal simulé
-        class MockSignal:
-            def __init__(self, text):
-                self.text = text
-        
-        mock_signal = MockSignal(signal_text)
-        
-        # 1. Vérifier si c'est un signal valide
-        processor = SignalProcessor(mock_signal, channel_id)
-        if not processor.is_signal():
-            print("❌ Le texte ne contient pas de signal de trading valide.")
-            return None
-        
-        # 2. Extraire et valider le signal
-        signals = processor.get_signal()
-        if not signals:
-            print("❌ Impossible d'extraire ou de valider le signal.")
-            return None
-        
-        print(f"✅ Signal(s) extrait(s) pour le canal {channel_id}:")
-        if isinstance(signals, list):
-            for i, sig in enumerate(signals, 1):
-                print(f"  📊 Ordre {i}: {sig}")
-        else:
-            print(f"  📊 {signals}")
-        
-        # 3. Vérifier le statut du risque AVANT de continuer
-        print(f"\n🔍 Vérification du risque du compte (Canal {channel_id})...")
-        self.risk_manager.display_risk_status(self.order_sender)
-        
-        if not self.risk_manager.can_open_position(self.order_sender):
-            print("❌ Signal ignoré: Risque du compte trop élevé")
-            return None
-        
-        # 4. Calculer les tailles de lot
-        print(f"\n📊 Calcul des tailles de lot pour le canal {channel_id}...")
-        lot_sizes = self.risk_manager.calculate_lot_size_for_signal(signals, channel_id)
-        
-        if not lot_sizes:
-            print("❌ Impossible de calculer les tailles de lot")
-            return None
-        
-        print(f"✅ Tailles de lot calculées: {lot_sizes}")
-        
-        # 5. Placer les ordres sur MT5 (avec vérification démo intégrée)
-        print(f"\n📈 Placement des ordres sur MT5 (Canal {channel_id})...")
-        order_results = self.order_sender.place_signal_orders(signals, lot_sizes, channel_id)
-        
-        if order_results:
-            # Enregistrer le signal traité
-            signal_record = {
-                'channel_id': channel_id,
-                'channel_name': self.channel_config[channel_id]['name'],
-                'telegram_id': self.channel_config[channel_id]['telegram_id'],
-                'signals': signals,
-                'lot_sizes': lot_sizes,
-                'orders': order_results,
-                'timestamp': order_results[0]['timestamp'] if order_results else None,
-                'account_type': 'DEMO'
-            }
-            self.processed_signals.append(signal_record)
+        # Tentatives avec retry
+        for attempt in range(max_retries + 1):
+            if attempt > 0:
+                print(f"\n🔄 TENTATIVE {attempt + 1}/{max_retries + 1} - Nouveau traitement ChatGPT")
+                time.sleep(2)  # Petite pause entre les tentatives
             
-            # Afficher le nouveau statut du risque
-            print(f"\n📊 Statut du risque après traitement du signal (Canal {channel_id}):")
+            # VÉRIFICATION OBLIGATOIRE du compte démo avant traitement
+            print("🔍 Vérification de la connexion au compte démo...")
+            if not self.order_sender.verify_demo_connection():
+                print("🚫 TRAITEMENT ANNULÉ - Connexion au compte démo non confirmée")
+                return None
+            
+            # Créer un objet signal simulé
+            class MockSignal:
+                def __init__(self, text):
+                    self.text = text
+            
+            mock_signal = MockSignal(signal_text)
+            
+            # 1. Vérifier si c'est un signal valide
+            processor = SignalProcessor(mock_signal, channel_id)
+            if not processor.is_signal():
+                print("❌ Le texte ne contient pas de signal de trading valide.")
+                return None
+            
+            # 2. Extraire et valider le signal (NOUVEAU TRAITEMENT CHATGPT À CHAQUE TENTATIVE)
+            print(f"🤖 Envoi à ChatGPT (tentative {attempt + 1})...")
+            signals = processor.get_signal()
+            if not signals:
+                print(f"❌ Tentative {attempt + 1}: Impossible d'extraire ou de valider le signal.")
+                if attempt < max_retries:
+                    print("🔄 Nouvelle tentative avec ChatGPT...")
+                    continue
+                else:
+                    print("❌ Toutes les tentatives d'extraction ont échoué.")
+                    return None
+            
+            print(f"✅ Signal(s) extrait(s) pour le canal {channel_id} (tentative {attempt + 1}):")
+            if isinstance(signals, list):
+                for i, sig in enumerate(signals, 1):
+                    print(f"  📊 Ordre {i}: {sig}")
+            else:
+                print(f"  📊 {signals}")
+            
+            # 3. Vérifier le statut du risque AVANT de continuer
+            print(f"\n🔍 Vérification du risque du compte (Canal {channel_id})...")
             self.risk_manager.display_risk_status(self.order_sender)
             
-            print(f"✅ Signal du canal {channel_id} traité avec succès! {len(order_results)} ordres placés.")
-        else:
-            print(f"❌ Échec du traitement du signal du canal {channel_id}.")
+            if not self.risk_manager.can_open_position(self.order_sender):
+                print("❌ Signal ignoré: Risque du compte trop élevé")
+                return None
+            
+            # 4. Calculer les tailles de lot
+            print(f"\n📊 Calcul des tailles de lot pour le canal {channel_id}...")
+            lot_sizes = self.risk_manager.calculate_lot_size_for_signal(signals, channel_id)
+            
+            if not lot_sizes:
+                print(f"❌ Tentative {attempt + 1}: Impossible de calculer les tailles de lot")
+                if attempt < max_retries:
+                    continue
+                else:
+                    return None
+            
+            print(f"✅ Tailles de lot calculées: {lot_sizes}")
+            
+            # 5. Placer les ordres sur MT5 (avec vérification démo intégrée)
+            print(f"\n📈 Placement des ordres sur MT5 (Canal {channel_id}, tentative {attempt + 1})...")
+            order_results = self.order_sender.place_signal_orders(signals, lot_sizes, channel_id)
+            
+            # Vérifier si au moins un ordre a réussi
+            if order_results and len(order_results) > 0:
+                # Au moins un ordre a réussi
+                print(f"✅ Tentative {attempt + 1} réussie! {len(order_results)} ordres placés.")
+                
+                # Enregistrer le signal traité
+                signal_record = {
+                    'channel_id': channel_id,
+                    'channel_name': self.channel_config[channel_id]['name'],
+                    'telegram_id': self.channel_config[channel_id]['telegram_id'],
+                    'signals': signals,
+                    'lot_sizes': lot_sizes,
+                    'orders': order_results,
+                    'timestamp': order_results[0]['timestamp'] if order_results else None,
+                    'account_type': 'DEMO',
+                    'attempt_number': attempt + 1,
+                    'total_attempts': attempt + 1
+                }
+                self.processed_signals.append(signal_record)
+                
+                # Afficher le nouveau statut du risque
+                print(f"\n📊 Statut du risque après traitement du signal (Canal {channel_id}):")
+                self.risk_manager.display_risk_status(self.order_sender)
+                
+                return order_results
+            
+            else:
+                # Tous les ordres ont échoué
+                print(f"❌ Tentative {attempt + 1}: Tous les ordres ont échoué")
+                
+                if attempt < max_retries:
+                    print(f"🔄 Préparation de la tentative {attempt + 2} avec nouveau traitement ChatGPT...")
+                else:
+                    print(f"❌ ÉCHEC FINAL: Toutes les {max_retries + 1} tentatives ont échoué")
+                    print("💡 Vérifiez:")
+                    print("   - La validité du signal")
+                    print("   - Les conditions de marché")
+                    print("   - La connexion MT5")
+                    return None
         
-        return order_results
+        return None
     
     def display_channel_info(self):
         """
@@ -169,6 +205,7 @@ class TradingBot:
         print("\n" + "=" * 80)
         print("UTILISATION:")
         print("  bot.process_signal(signal_text, channel_id=1)  # Canal spécifique OBLIGATOIRE")
+        print("  bot.process_signal(signal_text, channel_id=1, max_retries=3)  # Avec retry personnalisé")
         print("=" * 80 + "\n")
     
     def _get_position_type_string(self, position_type):
@@ -236,7 +273,8 @@ class TradingBot:
                 telegram_id = signal_record['telegram_id']
                 orders_count = len(signal_record['orders'])
                 account_type = signal_record.get('account_type', 'UNKNOWN')
-                print(f"  {i}. {channel_name} (Canal {channel}, TG: {telegram_id}) - {orders_count} ordres - {account_type} - {signal_record['timestamp']}")
+                attempt_info = f"(tentative {signal_record.get('attempt_number', 1)}/{signal_record.get('total_attempts', 1)})"
+                print(f"  {i}. {channel_name} (Canal {channel}, TG: {telegram_id}) - {orders_count} ordres - {account_type} {attempt_info} - {signal_record['timestamp']}")
         
         print("=" * 80 + "\n")
     

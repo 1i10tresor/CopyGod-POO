@@ -50,6 +50,9 @@ class TelegramListener:
         self.api_id = telegram_config.API_ID
         self.api_hash = telegram_config.API_HASH
         self.session_name = telegram_config.SESSION_NAME
+        
+        # Configuration retry
+        self.max_signal_retries = 2  # Nombre de tentatives par signal
     
     def _generate_possible_ids(self, base_id):
         """
@@ -196,6 +199,8 @@ class TelegramListener:
             info = self.monitored_channels[channel_id]
             print(f"   Canal {channel_id}: {info['name']} (TG: {info['verified_id']})")
         
+        print(f"🔄 Configuration retry: {self.max_signal_retries} tentatives par signal")
+        
         self.is_listening = True
         
         # Configurer les gestionnaires d'événements
@@ -244,8 +249,8 @@ class TelegramListener:
                 print(f"⏰ Timestamp: {event.message.date}")
                 print(f"💬 Contenu:\n{message_text}")
                 
-                # Traiter le message
-                await self._process_message(message_text, channel_id, message_id, sender, event.message.date)
+                # Traiter le message avec retry
+                await self._process_message_with_retry(message_text, channel_id, message_id, sender, event.message.date)
                 
             except Exception as e:
                 print(f"❌ Erreur lors du traitement du message: {e}")
@@ -317,9 +322,9 @@ class TelegramListener:
                 return channel_id
         return None
     
-    async def _process_message(self, message_text, channel_id, message_id, sender, timestamp):
+    async def _process_message_with_retry(self, message_text, channel_id, message_id, sender, timestamp):
         """
-        Traite un nouveau message détecté.
+        Traite un nouveau message détecté avec système de retry.
         
         Args:
             message_text (str): Contenu du message
@@ -341,10 +346,10 @@ class TelegramListener:
                 print(f"ℹ️  Message ignoré: ne contient pas de signal de trading")
                 return
             
-            print(f"✅ Signal détecté! Lancement du traitement...")
+            print(f"✅ Signal détecté! Lancement du traitement avec retry...")
             
-            # Traiter le signal avec le bot
-            result = self.bot.process_signal(message_text, channel_id)
+            # Traiter le signal avec le bot (AVEC RETRY AUTOMATIQUE)
+            result = self.bot.process_signal(message_text, channel_id, max_retries=self.max_signal_retries)
             
             # Enregistrer le message traité
             processed_record = {
@@ -358,7 +363,9 @@ class TelegramListener:
                 'sender': self._get_sender_name(sender),
                 'processing_result': result is not None,
                 'orders_placed': len(result) if result else 0,
-                'processed_at': datetime.now().isoformat()
+                'processed_at': datetime.now().isoformat(),
+                'max_retries_used': self.max_signal_retries,
+                'retry_enabled': True
             }
             
             self.processed_messages.append(processed_record)
@@ -368,10 +375,10 @@ class TelegramListener:
             if result:
                 print(f"🎉 Message traité avec succès! {len(result)} ordres placés.")
             else:
-                print(f"❌ Échec du traitement du message.")
+                print(f"❌ Échec du traitement du message après {self.max_signal_retries + 1} tentatives.")
                 
         except Exception as e:
-            print(f"❌ Erreur lors du traitement du message: {e}")
+            print(f"❌ Erreur lors du traitement du message avec retry: {e}")
     
     async def stop_listening(self):
         """
@@ -400,7 +407,9 @@ class TelegramListener:
             'accessible_channels': [
                 channel_id for channel_id, info in self.monitored_channels.items()
                 if info.get('verified_id') is not None
-            ]
+            ],
+            'max_signal_retries': self.max_signal_retries,
+            'retry_enabled': True
         }
     
     def display_listener_summary(self):
@@ -416,6 +425,7 @@ class TelegramListener:
         print(f"Client: {'🟢 Connecté' if status['client_connected'] else '🔴 Déconnecté'}")
         print(f"Messages traités: {status['total_processed']}")
         print(f"Canaux accessibles: {len(status['accessible_channels'])}/{len(self.monitored_channels)}")
+        print(f"🔄 Retry activé: {status['max_signal_retries']} tentatives par signal")
         
         print("\nCanaux surveillés:")
         for channel_id, info in status['monitored_channels'].items():
@@ -436,7 +446,8 @@ class TelegramListener:
             print(f"\nDerniers messages traités:")
             for record in self.processed_messages[-5:]:  # 5 derniers
                 status_icon = "✅" if record['processing_result'] else "❌"
-                print(f"  {status_icon} Canal {record['channel_id']} - {record['orders_placed']} ordres - {record['processed_at']}")
+                retry_info = f"(retry: {record.get('max_retries_used', 0)})" if record.get('retry_enabled') else ""
+                print(f"  {status_icon} Canal {record['channel_id']} - {record['orders_placed']} ordres {retry_info} - {record['processed_at']}")
         
         print("=" * 80 + "\n")
 
@@ -475,6 +486,7 @@ class TradingSystemTelegram:
         self.is_running = True
         print("✅ Système de trading démarré avec succès!")
         print("💡 Le système surveille maintenant les canaux Telegram en temps réel.")
+        print(f"🔄 Retry automatique activé: {self.telegram_listener.max_signal_retries} tentatives par signal")
     
     async def stop_system(self):
         """

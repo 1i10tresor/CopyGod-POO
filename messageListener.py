@@ -39,6 +39,9 @@ class MessageListener:
         
         # Historique des messages traités
         self.processed_messages = []
+        
+        # Configuration retry
+        self.max_signal_retries = 2  # Nombre de tentatives par signal
     
     def start_listening(self):
         """
@@ -57,6 +60,7 @@ class MessageListener:
         print("📡 Canaux surveillés:")
         for channel_id, info in self.monitored_channels.items():
             print(f"   Canal {channel_id}: {info['name']} (TG: {info['telegram_id']})")
+        print(f"🔄 Configuration retry: {self.max_signal_retries} tentatives par signal")
     
     def stop_listening(self):
         """
@@ -92,7 +96,7 @@ class MessageListener:
     
     def _process_new_message(self, message, channel_id):
         """
-        Traite un nouveau message détecté.
+        Traite un nouveau message détecté avec système de retry.
         
         Args:
             message (dict): Données du message
@@ -124,10 +128,10 @@ class MessageListener:
                 print(f"ℹ️  Message ignoré: ne contient pas de signal de trading")
                 return
             
-            print(f"✅ Signal détecté! Lancement du traitement...")
+            print(f"✅ Signal détecté! Lancement du traitement avec retry...")
             
-            # Traiter le signal avec le bot (CHANNEL_ID OBLIGATOIRE)
-            result = self.bot.process_signal(message_content, channel_id)
+            # Traiter le signal avec le bot (AVEC RETRY AUTOMATIQUE)
+            result = self.bot.process_signal(message_content, channel_id, max_retries=self.max_signal_retries)
             
             # Enregistrer le message traité
             processed_record = {
@@ -140,7 +144,9 @@ class MessageListener:
                 'author': message.get('author'),
                 'processing_result': result is not None,
                 'orders_placed': len(result) if result else 0,
-                'processed_at': datetime.now().isoformat()
+                'processed_at': datetime.now().isoformat(),
+                'max_retries_used': self.max_signal_retries,
+                'retry_enabled': True
             }
             
             self.processed_messages.append(processed_record)
@@ -150,7 +156,7 @@ class MessageListener:
             if result:
                 print(f"🎉 Message traité avec succès! {len(result)} ordres placés.")
             else:
-                print(f"❌ Échec du traitement du message.")
+                print(f"❌ Échec du traitement du message après {self.max_signal_retries + 1} tentatives.")
                 
         except Exception as e:
             print(f"❌ Erreur lors du traitement du message: {e}")
@@ -164,7 +170,9 @@ class MessageListener:
             'monitored_channels': self.monitored_channels,
             'total_processed': len(self.processed_messages),
             'thread_alive': self.listener_thread.is_alive() if self.listener_thread else False,
-            'connection_type': 'SIMULATION'
+            'connection_type': 'SIMULATION',
+            'max_signal_retries': self.max_signal_retries,
+            'retry_enabled': True
         }
     
     def display_listener_summary(self):
@@ -180,6 +188,7 @@ class MessageListener:
         print(f"Thread: {'🟢 Vivant' if status['thread_alive'] else '🔴 Arrêté'}")
         print(f"Type: 🧪 {status['connection_type']}")
         print(f"Messages traités: {status['total_processed']}")
+        print(f"🔄 Retry activé: {status['max_signal_retries']} tentatives par signal")
         
         print("\nCanaux surveillés:")
         for channel_id, info in status['monitored_channels'].items():
@@ -192,7 +201,8 @@ class MessageListener:
             print(f"\nDerniers messages traités:")
             for record in self.processed_messages[-5:]:  # 5 derniers
                 status_icon = "✅" if record['processing_result'] else "❌"
-                print(f"  {status_icon} Canal {record['channel_id']} (TG: {record['telegram_id']}) - {record['orders_placed']} ordres - {record['processed_at']}")
+                retry_info = f"(retry: {record.get('max_retries_used', 0)})" if record.get('retry_enabled') else ""
+                print(f"  {status_icon} Canal {record['channel_id']} (TG: {record['telegram_id']}) - {record['orders_placed']} ordres {retry_info} - {record['processed_at']}")
         
         print("\n💡 Pour la vraie connexion Telegram, utilisez:")
         print("   python launch_telegram_bot.py")
@@ -234,6 +244,7 @@ class TradingSystem:
         self.is_running = True
         print("✅ Système de trading démarré avec succès (MODE SIMULATION)!")
         print("💡 Utilisez les fonctions simulate_* pour tester le système.")
+        print(f"🔄 Retry automatique activé: {self.listener.max_signal_retries} tentatives par signal")
     
     def stop_system(self):
         """
