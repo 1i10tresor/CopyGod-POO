@@ -213,138 +213,210 @@ class SendOrder:
         print("🛑 Opération annulée pour votre sécurité")
         return False
     
-    def _normalize_price(self, price, symbol_info):
+    def _get_symbol_trading_info(self, symbol):
         """
-        Normalise un prix selon la précision du symbole.
+        Récupère les informations de trading détaillées pour un symbole.
         
         Args:
-            price (float): Prix à normaliser
-            symbol_info: Informations du symbole MT5
+            symbol (str): Symbole à analyser
         
         Returns:
-            float: Prix normalisé
+            dict: Informations détaillées ou None
         """
-        if not symbol_info:
-            return price
-        
-        # Arrondir selon la précision du symbole
-        digits = symbol_info.digits
-        return round(price, digits)
+        try:
+            # Sélectionner le symbole
+            if not mt5.symbol_select(symbol, True):
+                print(f"❌ Impossible de sélectionner {symbol}")
+                return None
+            
+            # Obtenir les informations
+            symbol_info = mt5.symbol_info(symbol)
+            if not symbol_info:
+                print(f"❌ Impossible d'obtenir les infos pour {symbol}")
+                return None
+            
+            # Obtenir le tick actuel
+            tick = mt5.symbol_info_tick(symbol)
+            if not tick:
+                print(f"❌ Impossible d'obtenir le tick pour {symbol}")
+                return None
+            
+            return {
+                'symbol': symbol,
+                'digits': symbol_info.digits,
+                'point': symbol_info.point,
+                'tick_size': symbol_info.trade_tick_size,
+                'tick_value': symbol_info.trade_tick_value,
+                'min_lot': symbol_info.volume_min,
+                'max_lot': symbol_info.volume_max,
+                'lot_step': symbol_info.volume_step,
+                'stops_level': symbol_info.trade_stops_level,
+                'freeze_level': symbol_info.trade_freeze_level,
+                'current_bid': tick.bid,
+                'current_ask': tick.ask,
+                'spread': tick.ask - tick.bid,
+                'trade_mode': symbol_info.trade_mode,
+                'trade_execution': symbol_info.trade_execution,
+                'filling_mode': symbol_info.filling_mode
+            }
+            
+        except Exception as e:
+            print(f"❌ Erreur lors de la récupération des infos pour {symbol}: {e}")
+            return None
     
-    def _validate_pending_order_price(self, entry_price, current_price, sens, symbol_info):
+    def _validate_order_request(self, request, symbol_info_dict):
         """
-        Valide et ajuste le prix d'un ordre en attente selon les règles MT5.
+        Valide une requête d'ordre avant envoi et suggère des corrections.
         
         Args:
-            entry_price (float): Prix d'entrée souhaité
-            current_price (float): Prix actuel du marché
-            sens (str): Direction BUY ou SELL
-            symbol_info: Informations du symbole MT5
+            request (dict): Requête d'ordre MT5
+            symbol_info_dict (dict): Informations du symbole
         
         Returns:
-            tuple: (prix_validé, est_valide, raison)
+            tuple: (request_corrigée, est_valide, messages_diagnostic)
         """
-        if not symbol_info:
-            return entry_price, False, "Informations symbole manquantes"
+        diagnostics = []
+        corrected_request = request.copy()
+        is_valid = True
         
-        # Normaliser les prix
-        entry_price = self._normalize_price(entry_price, symbol_info)
-        current_price = self._normalize_price(current_price, symbol_info)
+        try:
+            symbol = request['symbol']
+            order_type = request['type']
+            price = request['price']
+            sl = request.get('sl', 0)
+            tp = request.get('tp', 0)
+            volume = request['volume']
+            
+            # Vérifier le volume
+            min_lot = symbol_info_dict['min_lot']
+            max_lot = symbol_info_dict['max_lot']
+            lot_step = symbol_info_dict['lot_step']
+            
+            if volume < min_lot:
+                diagnostics.append(f"⚠️  Volume {volume} < minimum {min_lot}")
+                corrected_request['volume'] = min_lot
+            elif volume > max_lot:
+                diagnostics.append(f"⚠️  Volume {volume} > maximum {max_lot}")
+                corrected_request['volume'] = max_lot
+                
+            # Vérifier que le volume respecte le step
+            volume_steps = round(volume / lot_step)
+            corrected_volume = volume_steps * lot_step
+            if abs(corrected_volume - volume) > 0.0001:
+                diagnostics.append(f"💡 Volume ajusté de {volume} à {corrected_volume} (step: {lot_step})")
+                corrected_request['volume'] = corrected_volume
+            
+            # Normaliser les prix selon la précision
+            digits = symbol_info_dict['digits']
+            point = symbol_info_dict['point']
+            
+            price_normalized = round(price, digits)
+            if abs(price_normalized - price) > point/2:
+                diagnostics.append(f"💡 Prix normalisé de {price} à {price_normalized}")
+                corrected_request['price'] = price_normalized
+            
+            if sl > 0:
+                sl_normalized = round(sl, digits)
+                if abs(sl_normalized - sl) > point/2:
+                    diagnostics.append(f"💡 SL normalisé de {sl} à {sl_normalized}")
+                    corrected_request['sl'] = sl_normalized
+            
+            if tp > 0:
+                tp_normalized = round(tp, digits)
+                if abs(tp_normalized - tp) > point/2:
+                    diagnostics.append(f"💡 TP normalisé de {tp} à {tp_normalized}")
+                    corrected_request['tp'] = tp_normalized
+            
+            # Vérifier les distances minimales pour les ordres en attente
+            if request['action'] == mt5.TRADE_ACTION_PENDING:
+                stops_level = symbol_info_dict['stops_level']
+                freeze_level = symbol_info_dict['freeze_level']
+                current_bid = symbol_info_dict['current_bid']
+                current_ask = symbol_info_dict['current_ask']
+                
+                diagnostics.append(f"📊 Stops level: {stops_level} points")
+                diagnostics.append(f"📊 Freeze level: {freeze_level} points")
+                
+                # Calculer les distances minimales
+                min_distance = max(stops_level, freeze_level) * point
+                
+                if order_type in [mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_BUY_STOP]:
+                    current_price = current_ask
+                    if order_type == mt5.ORDER_TYPE_BUY_LIMIT:
+                        # BUY LIMIT doit être en dessous du prix actuel
+                        if price >= current_price:
+                            diagnostics.append(f"❌ BUY LIMIT: prix {price} doit être < prix actuel {current_price}")
+                            is_valid = False
+                        else:
+                            distance = current_price - price
+                            if distance < min_distance:
+                                diagnostics.append(f"❌ BUY LIMIT: distance {distance:.5f} < minimum {min_distance:.5f}")
+                                suggested_price = current_price - min_distance
+                                diagnostics.append(f"💡 Prix suggéré: {suggested_price:.5f}")
+                                is_valid = False
+                    else:  # BUY STOP
+                        # BUY STOP doit être au dessus du prix actuel
+                        if price <= current_price:
+                            diagnostics.append(f"❌ BUY STOP: prix {price} doit être > prix actuel {current_price}")
+                            is_valid = False
+                        else:
+                            distance = price - current_price
+                            if distance < min_distance:
+                                diagnostics.append(f"❌ BUY STOP: distance {distance:.5f} < minimum {min_distance:.5f}")
+                                suggested_price = current_price + min_distance
+                                diagnostics.append(f"💡 Prix suggéré: {suggested_price:.5f}")
+                                is_valid = False
+                
+                elif order_type in [mt5.ORDER_TYPE_SELL_LIMIT, mt5.ORDER_TYPE_SELL_STOP]:
+                    current_price = current_bid
+                    if order_type == mt5.ORDER_TYPE_SELL_LIMIT:
+                        # SELL LIMIT doit être au dessus du prix actuel
+                        if price <= current_price:
+                            diagnostics.append(f"❌ SELL LIMIT: prix {price} doit être > prix actuel {current_price}")
+                            is_valid = False
+                        else:
+                            distance = price - current_price
+                            if distance < min_distance:
+                                diagnostics.append(f"❌ SELL LIMIT: distance {distance:.5f} < minimum {min_distance:.5f}")
+                                suggested_price = current_price + min_distance
+                                diagnostics.append(f"💡 Prix suggéré: {suggested_price:.5f}")
+                                is_valid = False
+                    else:  # SELL STOP
+                        # SELL STOP doit être en dessous du prix actuel
+                        if price >= current_price:
+                            diagnostics.append(f"❌ SELL STOP: prix {price} doit être < prix actuel {current_price}")
+                            is_valid = False
+                        else:
+                            distance = current_price - price
+                            if distance < min_distance:
+                                diagnostics.append(f"❌ SELL STOP: distance {distance:.5f} < minimum {min_distance:.5f}")
+                                suggested_price = current_price - min_distance
+                                diagnostics.append(f"💡 Prix suggéré: {suggested_price:.5f}")
+                                is_valid = False
+            
+            # Vérifier les modes de remplissage supportés
+            filling_mode = symbol_info_dict['filling_mode']
+            requested_filling = request.get('type_filling', mt5.ORDER_FILLING_IOC)
+            
+            # Vérifier si le mode de remplissage est supporté
+            if filling_mode & requested_filling == 0:
+                diagnostics.append(f"⚠️  Mode de remplissage {requested_filling} non supporté")
+                # Essayer d'autres modes
+                if filling_mode & mt5.ORDER_FILLING_FOK:
+                    corrected_request['type_filling'] = mt5.ORDER_FILLING_FOK
+                    diagnostics.append(f"💡 Utilisation de ORDER_FILLING_FOK")
+                elif filling_mode & mt5.ORDER_FILLING_IOC:
+                    corrected_request['type_filling'] = mt5.ORDER_FILLING_IOC
+                    diagnostics.append(f"💡 Utilisation de ORDER_FILLING_IOC")
+                elif filling_mode & mt5.ORDER_FILLING_RETURN:
+                    corrected_request['type_filling'] = mt5.ORDER_FILLING_RETURN
+                    diagnostics.append(f"💡 Utilisation de ORDER_FILLING_RETURN")
+            
+        except Exception as e:
+            diagnostics.append(f"❌ Erreur lors de la validation: {e}")
+            is_valid = False
         
-        # Calculer la distance minimale (généralement 10-50 points selon le broker)
-        point = symbol_info.point
-        min_distance_points = 10  # Distance minimale en points
-        min_distance = min_distance_points * point
-        
-        # Vérifier la distance selon le type d'ordre
-        if sens == 'BUY':
-            if entry_price < current_price:
-                # BUY LIMIT - doit être suffisamment en dessous
-                distance = current_price - entry_price
-                if distance < min_distance:
-                    adjusted_price = current_price - min_distance
-                    return self._normalize_price(adjusted_price, symbol_info), True, f"Prix ajusté pour respecter la distance minimale ({min_distance_points} points)"
-            else:
-                # BUY STOP - doit être suffisamment au dessus
-                distance = entry_price - current_price
-                if distance < min_distance:
-                    adjusted_price = current_price + min_distance
-                    return self._normalize_price(adjusted_price, symbol_info), True, f"Prix ajusté pour respecter la distance minimale ({min_distance_points} points)"
-        else:  # SELL
-            if entry_price > current_price:
-                # SELL LIMIT - doit être suffisamment au dessus
-                distance = entry_price - current_price
-                if distance < min_distance:
-                    adjusted_price = current_price + min_distance
-                    return self._normalize_price(adjusted_price, symbol_info), True, f"Prix ajusté pour respecter la distance minimale ({min_distance_points} points)"
-            else:
-                # SELL STOP - doit être suffisamment en dessous
-                distance = current_price - entry_price
-                if distance < min_distance:
-                    adjusted_price = current_price - min_distance
-                    return self._normalize_price(adjusted_price, symbol_info), True, f"Prix ajusté pour respecter la distance minimale ({min_distance_points} points)"
-        
-        return entry_price, True, "Prix valide"
-    
-    def _determine_order_type_and_action(self, entry_price, current_price, sens, symbol_info):
-        """
-        Détermine le type d'ordre et l'action selon les prix.
-        
-        Args:
-            entry_price (float): Prix d'entrée souhaité
-            current_price (float): Prix actuel du marché
-            sens (str): Direction BUY ou SELL
-            symbol_info: Informations du symbole MT5
-        
-        Returns:
-            tuple: (order_type, action, execution_price, order_type_name)
-        """
-        # Normaliser les prix
-        entry_price = self._normalize_price(entry_price, symbol_info)
-        current_price = self._normalize_price(current_price, symbol_info)
-        
-        # Tolérance pour considérer les prix comme égaux
-        point = symbol_info.point if symbol_info else 0.0001
-        tolerance = 5 * point  # 5 points de tolérance
-        
-        if abs(entry_price - current_price) <= tolerance:
-            # Prix très proche, ordre au marché
-            if sens == 'BUY':
-                return mt5.ORDER_TYPE_BUY, mt5.TRADE_ACTION_DEAL, current_price, "BUY (Marché)"
-            else:
-                return mt5.ORDER_TYPE_SELL, mt5.TRADE_ACTION_DEAL, current_price, "SELL (Marché)"
-        
-        # Valider le prix pour l'ordre en attente
-        validated_price, is_valid, reason = self._validate_pending_order_price(
-            entry_price, current_price, sens, symbol_info
-        )
-        
-        if not is_valid:
-            print(f"⚠️  {reason}")
-            # Fallback vers ordre au marché
-            if sens == 'BUY':
-                return mt5.ORDER_TYPE_BUY, mt5.TRADE_ACTION_DEAL, current_price, "BUY (Marché - Fallback)"
-            else:
-                return mt5.ORDER_TYPE_SELL, mt5.TRADE_ACTION_DEAL, current_price, "SELL (Marché - Fallback)"
-        
-        if validated_price != entry_price:
-            print(f"💡 {reason}")
-        
-        # Prix différent, ordre en attente
-        if sens == 'BUY':
-            if validated_price < current_price:
-                # BUY LIMIT (acheter moins cher)
-                return mt5.ORDER_TYPE_BUY_LIMIT, mt5.TRADE_ACTION_PENDING, validated_price, "BUY LIMIT"
-            else:
-                # BUY STOP (acheter plus cher)
-                return mt5.ORDER_TYPE_BUY_STOP, mt5.TRADE_ACTION_PENDING, validated_price, "BUY STOP"
-        else:  # SELL
-            if validated_price > current_price:
-                # SELL LIMIT (vendre plus cher)
-                return mt5.ORDER_TYPE_SELL_LIMIT, mt5.TRADE_ACTION_PENDING, validated_price, "SELL LIMIT"
-            else:
-                # SELL STOP (vendre moins cher)
-                return mt5.ORDER_TYPE_SELL_STOP, mt5.TRADE_ACTION_PENDING, validated_price, "SELL STOP"
+        return corrected_request, is_valid, diagnostics
     
     def place_signal_orders(self, signals, lot_sizes, channel_id=1):
         """
@@ -392,25 +464,19 @@ class SendOrder:
         sens = signal['sens']
         
         try:
-            # Vérifier le symbole
-            if not mt5.symbol_select(symbol, True):
-                print(f"❌ Symbole {symbol} non disponible")
+            # Obtenir les informations détaillées du symbole
+            symbol_info_dict = self._get_symbol_trading_info(symbol)
+            if not symbol_info_dict:
                 return []
             
-            # Obtenir les informations du symbole
-            symbol_info = mt5.symbol_info(symbol)
-            if not symbol_info:
-                print(f"❌ Impossible d'obtenir les informations pour {symbol}")
-                return []
+            print(f"📊 Informations {symbol}:")
+            print(f"   Digits: {symbol_info_dict['digits']}, Point: {symbol_info_dict['point']}")
+            print(f"   Stops level: {symbol_info_dict['stops_level']} points")
+            print(f"   Freeze level: {symbol_info_dict['freeze_level']} points")
+            print(f"   Prix actuel: Bid={symbol_info_dict['current_bid']}, Ask={symbol_info_dict['current_ask']}")
             
-            # Obtenir le prix actuel
-            tick = mt5.symbol_info_tick(symbol)
-            if not tick:
-                print(f"❌ Impossible d'obtenir le tick pour {symbol}")
-                return []
-            
-            current_price = tick.ask if sens == 'BUY' else tick.bid
-            print(f"💰 Prix actuel: {current_price}")
+            current_price = symbol_info_dict['current_ask'] if sens == 'BUY' else symbol_info_dict['current_bid']
+            print(f"💰 Prix de référence pour {sens}: {current_price}")
             print(f"🎯 Prix d'entrée souhaité: {entry_price}")
             
             print(f"📈 Placement de 3 ordres pour {symbol} {sens} (Canal 1)")
@@ -423,16 +489,37 @@ class SendOrder:
                 lot_size = lot_sizes[i]
                 tp_price = tps[i]
                 
+                print(f"\n🔍 Ordre TP{i+1}: {lot_size} lots → TP {tp_price}")
+                
                 # Déterminer le type d'ordre selon les prix
-                order_type, action, execution_price, order_type_name = self._determine_order_type_and_action(
-                    entry_price, current_price, sens, symbol_info
-                )
+                if abs(entry_price - current_price) <= 5 * symbol_info_dict['point']:
+                    # Prix très proche, ordre au marché
+                    order_type = mt5.ORDER_TYPE_BUY if sens == 'BUY' else mt5.ORDER_TYPE_SELL
+                    action = mt5.TRADE_ACTION_DEAL
+                    execution_price = current_price
+                    order_type_name = f"{sens} (Marché)"
+                else:
+                    # Ordre en attente
+                    if sens == 'BUY':
+                        if entry_price < current_price:
+                            order_type = mt5.ORDER_TYPE_BUY_LIMIT
+                            order_type_name = "BUY LIMIT"
+                        else:
+                            order_type = mt5.ORDER_TYPE_BUY_STOP
+                            order_type_name = "BUY STOP"
+                    else:  # SELL
+                        if entry_price > current_price:
+                            order_type = mt5.ORDER_TYPE_SELL_LIMIT
+                            order_type_name = "SELL LIMIT"
+                        else:
+                            order_type = mt5.ORDER_TYPE_SELL_STOP
+                            order_type_name = "SELL STOP"
+                    
+                    action = mt5.TRADE_ACTION_PENDING
+                    execution_price = entry_price
                 
-                print(f"🔍 Ordre TP{i+1}: {order_type_name} à {execution_price}")
-                
-                # Normaliser les prix SL et TP
-                sl_price_normalized = self._normalize_price(sl_price, symbol_info)
-                tp_price_normalized = self._normalize_price(tp_price, symbol_info)
+                print(f"📋 Type d'ordre: {order_type_name}")
+                print(f"💲 Prix d'exécution: {execution_price}")
                 
                 # Préparer la requête
                 request = {
@@ -441,8 +528,8 @@ class SendOrder:
                     "volume": lot_size,
                     "type": order_type,
                     "price": execution_price,
-                    "sl": sl_price_normalized,
-                    "tp": tp_price_normalized,
+                    "sl": sl_price,
+                    "tp": tp_price,
                     "deviation": trading_config.MT5_DEVIATION,
                     "magic": trading_config.MT5_MAGIC_BASE + i,
                     "comment": f"Signal Canal 1 - TP{i+1} - DEMO",
@@ -450,20 +537,33 @@ class SendOrder:
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
                 
-                print(f"📋 Requête d'ordre TP{i+1}: {request}")
+                # Valider et corriger la requête
+                corrected_request, is_valid, diagnostics = self._validate_order_request(request, symbol_info_dict)
+                
+                print(f"🔍 Diagnostic de l'ordre TP{i+1}:")
+                for diag in diagnostics:
+                    print(f"   {diag}")
+                
+                if not is_valid:
+                    print(f"❌ Ordre TP{i+1} invalide, passage ignoré")
+                    continue
+                
+                print(f"📋 Requête finale: {corrected_request}")
                 
                 # Envoyer l'ordre
-                result = mt5.order_send(request)
+                result = mt5.order_send(corrected_request)
                 
-                # Vérifier si le résultat est None
+                # Diagnostic détaillé du résultat
                 if result is None:
                     error = mt5.last_error()
                     print(f"❌ Ordre TP{i+1} - Résultat None. Erreur MT5: {error}")
                     continue
                 
+                print(f"📊 Résultat ordre TP{i+1}: retcode={result.retcode}, comment='{result.comment}'")
+                
                 if result.retcode != mt5.TRADE_RETCODE_DONE:
                     print(f"❌ Erreur ordre TP{i+1}: {result.retcode} - {result.comment}")
-                    print(f"   Détails: {result}")
+                    print(f"   Détails complets: {result}")
                     continue
                 
                 # Créer les détails de l'ordre
@@ -472,9 +572,9 @@ class SendOrder:
                     'symbol': symbol,
                     'type': sens,
                     'entry_price': execution_price,
-                    'lot_size': lot_size,
-                    'stop_loss': sl_price_normalized,
-                    'take_profit': tp_price_normalized,
+                    'lot_size': corrected_request['volume'],
+                    'stop_loss': corrected_request['sl'],
+                    'take_profit': corrected_request['tp'],
                     'tp_number': i + 1,
                     'status': 'FILLED' if action == mt5.TRADE_ACTION_DEAL else 'PENDING',
                     'order_type': order_type_name,
@@ -487,7 +587,7 @@ class SendOrder:
                 results.append(order_details)
                 self.orders_history.append(order_details)
                 
-                print(f"✅ Ordre TP{i+1} placé: {lot_size} lots à {execution_price} → TP {tp_price_normalized}")
+                print(f"✅ Ordre TP{i+1} placé: {corrected_request['volume']} lots à {execution_price} → TP {corrected_request['tp']}")
                 time.sleep(0.1)  # Petite pause entre les ordres
             
             if results:
@@ -522,43 +622,51 @@ class SendOrder:
                 sens = signal['sens']
                 rr_ratio = signal['rr_ratio']
                 
-                print(f"🔍 Traitement ordre {i+1}: {symbol} {sens}")
+                print(f"\n🔍 Traitement ordre {i+1}: {symbol} {sens}")
                 print(f"   Entrée: {entry_price}, SL: {sl_price}, TP: {tp_price}")
                 
-                # Vérifier le symbole
-                if not mt5.symbol_select(symbol, True):
-                    print(f"❌ Symbole {symbol} non disponible")
+                # Obtenir les informations détaillées du symbole
+                symbol_info_dict = self._get_symbol_trading_info(symbol)
+                if not symbol_info_dict:
                     continue
                 
-                # Obtenir les informations du symbole pour validation
-                symbol_info = mt5.symbol_info(symbol)
-                if not symbol_info:
-                    print(f"❌ Impossible d'obtenir les informations pour {symbol}")
-                    continue
+                print(f"📊 Info symbole: digits={symbol_info_dict['digits']}, point={symbol_info_dict['point']}")
+                print(f"   Stops level: {symbol_info_dict['stops_level']} points")
+                print(f"   Freeze level: {symbol_info_dict['freeze_level']} points")
                 
-                print(f"📊 Info symbole: digits={symbol_info.digits}, point={symbol_info.point}")
-                
-                # Obtenir le prix actuel
-                tick = mt5.symbol_info_tick(symbol)
-                if not tick:
-                    print(f"❌ Impossible d'obtenir le tick pour {symbol}")
-                    continue
-                
-                current_price = tick.ask if sens == 'BUY' else tick.bid
-                print(f"💰 Prix actuel: {current_price}")
+                current_price = symbol_info_dict['current_ask'] if sens == 'BUY' else symbol_info_dict['current_bid']
+                print(f"💰 Prix de référence pour {sens}: {current_price}")
                 print(f"🎯 Prix d'entrée souhaité: {entry_price}")
                 
                 # Déterminer le type d'ordre selon les prix
-                order_type, action, execution_price, order_type_name = self._determine_order_type_and_action(
-                    entry_price, current_price, sens, symbol_info
-                )
+                if abs(entry_price - current_price) <= 5 * symbol_info_dict['point']:
+                    # Prix très proche, ordre au marché
+                    order_type = mt5.ORDER_TYPE_BUY if sens == 'BUY' else mt5.ORDER_TYPE_SELL
+                    action = mt5.TRADE_ACTION_DEAL
+                    execution_price = current_price
+                    order_type_name = f"{sens} (Marché)"
+                else:
+                    # Ordre en attente
+                    if sens == 'BUY':
+                        if entry_price < current_price:
+                            order_type = mt5.ORDER_TYPE_BUY_LIMIT
+                            order_type_name = "BUY LIMIT"
+                        else:
+                            order_type = mt5.ORDER_TYPE_BUY_STOP
+                            order_type_name = "BUY STOP"
+                    else:  # SELL
+                        if entry_price > current_price:
+                            order_type = mt5.ORDER_TYPE_SELL_LIMIT
+                            order_type_name = "SELL LIMIT"
+                        else:
+                            order_type = mt5.ORDER_TYPE_SELL_STOP
+                            order_type_name = "SELL STOP"
+                    
+                    action = mt5.TRADE_ACTION_PENDING
+                    execution_price = entry_price
                 
                 print(f"📋 Type d'ordre: {order_type_name}")
                 print(f"💲 Prix d'exécution: {execution_price}")
-                
-                # Normaliser les prix SL et TP
-                sl_price_normalized = self._normalize_price(sl_price, symbol_info)
-                tp_price_normalized = self._normalize_price(tp_price, symbol_info)
                 
                 # Préparer la requête
                 request = {
@@ -567,8 +675,8 @@ class SendOrder:
                     "volume": lot_size,
                     "type": order_type,
                     "price": execution_price,
-                    "sl": sl_price_normalized,
-                    "tp": tp_price_normalized,
+                    "sl": sl_price,
+                    "tp": tp_price,
                     "deviation": trading_config.MT5_DEVIATION,
                     "magic": trading_config.MT5_MAGIC_BASE + 1000 + i,
                     "comment": f"Signal Canal 2 - RR{rr_ratio} - DEMO",
@@ -576,21 +684,34 @@ class SendOrder:
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
                 
-                print(f"📋 Requête d'ordre: {request}")
+                # Valider et corriger la requête
+                corrected_request, is_valid, diagnostics = self._validate_order_request(request, symbol_info_dict)
+                
+                print(f"🔍 Diagnostic de l'ordre RR{rr_ratio}:")
+                for diag in diagnostics:
+                    print(f"   {diag}")
+                
+                if not is_valid:
+                    print(f"❌ Ordre RR{rr_ratio} invalide, passage ignoré")
+                    continue
+                
+                print(f"📋 Requête finale: {corrected_request}")
                 
                 # Envoyer l'ordre
-                result = mt5.order_send(request)
+                result = mt5.order_send(corrected_request)
                 
-                # Vérifier si le résultat est None
+                # Diagnostic détaillé du résultat
                 if result is None:
                     error = mt5.last_error()
                     print(f"❌ Ordre {i+1} - Résultat None. Erreur MT5: {error}")
                     continue
                 
+                print(f"📊 Résultat ordre RR{rr_ratio}: retcode={result.retcode}, comment='{result.comment}'")
+                
                 # Vérifier le code de retour
                 if result.retcode != mt5.TRADE_RETCODE_DONE:
                     print(f"❌ Erreur ordre RR{rr_ratio}: {result.retcode} - {result.comment}")
-                    print(f"   Détails: {result}")
+                    print(f"   Détails complets: {result}")
                     continue
                 
                 # Créer les détails de l'ordre
@@ -599,9 +720,9 @@ class SendOrder:
                     'symbol': symbol,
                     'type': sens,
                     'entry_price': execution_price,
-                    'lot_size': lot_size,
-                    'stop_loss': sl_price_normalized,
-                    'take_profit': tp_price_normalized,
+                    'lot_size': corrected_request['volume'],
+                    'stop_loss': corrected_request['sl'],
+                    'take_profit': corrected_request['tp'],
                     'rr_ratio': rr_ratio,
                     'order_index': i + 1,
                     'status': 'FILLED' if action == mt5.TRADE_ACTION_DEAL else 'PENDING',
@@ -615,7 +736,7 @@ class SendOrder:
                 results.append(order_details)
                 self.orders_history.append(order_details)
                 
-                print(f"✅ Ordre RR{rr_ratio} placé: {lot_size} lots, {order_type_name} à {execution_price} → TP {tp_price_normalized}")
+                print(f"✅ Ordre RR{rr_ratio} placé: {corrected_request['volume']} lots, {order_type_name} à {execution_price} → TP {corrected_request['tp']}")
                 time.sleep(0.1)
             
             if results:
