@@ -349,6 +349,7 @@ class TelegramListener:
             print(f"✅ Signal détecté! Lancement du traitement avec retry...")
             
             # Traiter le signal avec le bot (AVEC RETRY AUTOMATIQUE)
+            # CORRECTION: Utiliser la méthode avec le bon nom de paramètre
             result = self.bot.process_signal(message_text, channel_id, max_retries=self.max_signal_retries)
             
             # Enregistrer le message traité
@@ -379,6 +380,8 @@ class TelegramListener:
                 
         except Exception as e:
             print(f"❌ Erreur lors du traitement du message avec retry: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def stop_listening(self):
         """
