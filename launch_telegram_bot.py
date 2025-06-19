@@ -1,5 +1,5 @@
 """
-Script de lancement simplifié du système de trading Telegram.
+Script de lancement du système de trading Telegram.
 """
 
 import asyncio
@@ -9,14 +9,14 @@ from telegramListener import main
 def print_startup_info():
     """Affiche les informations de démarrage."""
     print("=" * 60)
-    print("🤖 SYSTÈME DE TRADING TELEGRAM SIMPLIFIÉ")
+    print("🤖 SYSTÈME DE TRADING TELEGRAM")
     print("=" * 60)
-    print("✅ Connexion automatique au compte Telegram")
-    print("✅ Connexion forcée au compte MT5 démo")
-    print("✅ Surveillance de 2 canaux Telegram")
-    print("✅ Traitement automatique des signaux")
-    print("✅ Placement automatique de 3 ordres par signal")
-    print("✅ Système de retry intégré (3 tentatives)")
+    print("✅ Connexion automatique Telegram")
+    print("✅ Connexion forcée compte MT5 démo")
+    print("✅ Surveillance 2 canaux Telegram")
+    print("✅ Gestion risque personnalisée")
+    print("✅ 3 ordres par signal")
+    print("✅ Arrondi à l'inférieur")
     print("=" * 60)
     print()
 
@@ -27,7 +27,7 @@ def check_requirements():
         import MetaTrader5
         import openai
         import dotenv
-        print("✅ Toutes les dépendances sont installées")
+        print("✅ Toutes les dépendances installées")
         return True
     except ImportError as e:
         print(f"❌ Dépendance manquante: {e}")
@@ -40,16 +40,16 @@ async def launch_system():
     if not check_requirements():
         return
     
-    print("🚀 Démarrage du système...")
-    print("⚠️ Le système va placer des ordres réels sur MT5 (compte démo)")
+    print("🚀 Lancement du système...")
+    print("⚠️ Ordres réels sur MT5 (compte démo)")
     print()
     
     response = input("Continuer ? (oui/non): ").lower().strip()
     if response not in ['oui', 'o', 'yes', 'y']:
-        print("❌ Démarrage annulé")
+        print("❌ Lancement annulé")
         return
     
-    print("\n🔄 Lancement...")
+    print("\n🔄 Démarrage...")
     await main()
 
 if __name__ == "__main__":

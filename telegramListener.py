@@ -3,10 +3,11 @@ from telethon import TelegramClient, events
 from config import config
 from chatGpt import chatGpt
 from order import SendOrder
+from riskManager import RiskManager
 import re
 
 class TradingBot:
-    def __init__(self):
+    def __init__(self, risk_per_signal_eur):
         # Configuration
         self.api_id = config.TELEGRAM_API_ID
         self.api_hash = config.TELEGRAM_API_HASH
@@ -19,6 +20,7 @@ class TradingBot:
         # Composants
         self.client = None
         self.order_sender = SendOrder()
+        self.risk_manager = RiskManager(risk_per_signal_eur)
         
     async def start(self):
         """Démarre le bot."""
@@ -99,8 +101,11 @@ class TradingBot:
             # 4. Créer 3 ordres individuels
             orders = self.create_orders(signal_data)
             
-            # 5. Placer les ordres
-            results = self.order_sender.place_orders(orders, [0.01, 0.01, 0.01])
+            # 5. Calculer les tailles de lot
+            lot_sizes = self.risk_manager.calculate_lot_sizes(orders)
+            
+            # 6. Placer les ordres
+            results = self.order_sender.place_orders(orders, lot_sizes)
             
             if results:
                 print(f"🎉 {len(results)} ordres placés!")
@@ -179,8 +184,44 @@ class TradingBot:
             finally:
                 self.order_sender.close_connection()
 
+def get_risk_input():
+    """Demande le risque à l'utilisateur."""
+    while True:
+        try:
+            risk = input("💰 Quel risque par signal (en €) ? : ")
+            risk_value = float(risk)
+            
+            if risk_value <= 0:
+                print("❌ Le risque doit être positif")
+                continue
+            
+            if risk_value > 1000:
+                confirm = input(f"⚠️ Risque élevé ({risk_value}€). Confirmer ? (oui/non): ")
+                if confirm.lower() not in ['oui', 'o', 'yes', 'y']:
+                    continue
+            
+            return risk_value
+            
+        except ValueError:
+            print("❌ Veuillez entrer un nombre valide")
+        except KeyboardInterrupt:
+            print("\n❌ Annulé")
+            exit()
+
 async def main():
-    bot = TradingBot()
+    print("🤖 SYSTÈME DE TRADING TELEGRAM")
+    print("=" * 40)
+    
+    # Demander le risque
+    risk_per_signal = get_risk_input()
+    
+    print(f"\n✅ Risque configuré: {risk_per_signal}€ par signal")
+    print(f"📊 Répartition: {risk_per_signal/3:.2f}€ par position")
+    print("🔄 Arrondi: Toujours à l'inférieur")
+    print("🛡️ Garantie: Risque jamais dépassé")
+    
+    # Lancer le bot
+    bot = TradingBot(risk_per_signal)
     await bot.run()
 
 if __name__ == "__main__":
