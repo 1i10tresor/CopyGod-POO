@@ -1,245 +1,187 @@
 import asyncio
-import time
-from datetime import datetime
 from telethon import TelegramClient, events
-from telethon.errors import SessionPasswordNeededError
-from config import telegram_config, trading_config
-from signalPaser import SignalProcessor
-from riskManager import RiskManager
+from config import config
+from chatGpt import chatGpt
 from order import SendOrder
+import re
 
-class TradingSystemTelegram:
+class TradingBot:
     def __init__(self):
-        # Configuration Telegram
-        self.api_id = telegram_config.API_ID
-        self.api_hash = telegram_config.API_HASH
-        self.session_name = telegram_config.SESSION_NAME
+        # Configuration
+        self.api_id = config.TELEGRAM_API_ID
+        self.api_hash = config.TELEGRAM_API_HASH
+        self.session_name = config.TELEGRAM_SESSION_NAME
         
-        # IDs des canaux (format -100...)
-        self.channel_1_id = -1002125503665  # Canal 1
-        self.channel_2_id = -1002259371711  # Canal 2
+        # IDs des canaux
+        self.channel_1_id = -1002125503665
+        self.channel_2_id = -1002259371711
         
-        # Composants du système
+        # Composants
         self.client = None
         self.order_sender = SendOrder()
-        self.risk_manager = RiskManager()
-        self.is_running = False
         
-        print("🤖 Système de trading initialisé")
-    
-    async def start_system(self):
-        """Démarre le système complet."""
-        print("🚀 Démarrage du système...")
+    async def start(self):
+        """Démarre le bot."""
+        print("🚀 Démarrage du bot...")
+        
+        # Connexion Telegram
+        self.client = TelegramClient(self.session_name, self.api_id, self.api_hash)
+        await self.client.start()
+        
+        if not await self.client.is_user_authorized():
+            print("❌ Pas autorisé sur Telegram")
+            return False
+        
+        me = await self.client.get_me()
+        print(f"✅ Connecté Telegram: {me.first_name}")
         
         # Vérifier MT5
         if not self.order_sender.is_connected:
             print("❌ MT5 non connecté")
             return False
         
-        # Initialiser Telegram
-        if not await self._initialize_telegram():
+        # Vérifier canaux
+        try:
+            await self.client.get_entity(self.channel_1_id)
+            await self.client.get_entity(self.channel_2_id)
+            print("✅ Canaux accessibles")
+        except Exception as e:
+            print(f"❌ Canaux inaccessibles: {e}")
             return False
         
-        # Vérifier l'accès aux canaux
-        if not await self._verify_channels():
-            return False
+        # Écouter les messages
+        @self.client.on(events.NewMessage(chats=[self.channel_1_id, self.channel_2_id]))
+        async def handle_message(event):
+            message_text = event.message.message
+            chat_id = event.chat_id
+            
+            # Identifier le canal
+            if chat_id == self.channel_1_id:
+                channel_id = 1
+            elif chat_id == self.channel_2_id:
+                channel_id = 2
+            else:
+                return
+            
+            print(f"\n📨 Message Canal {channel_id}: {message_text[:50]}...")
+            await self.process_message(message_text, channel_id)
         
-        # Démarrer l'écoute
-        await self._start_listening()
-        
-        self.is_running = True
-        print("✅ Système démarré avec succès!")
+        print("🎧 Écoute active...")
         return True
     
-    async def _initialize_telegram(self):
-        """Initialise la connexion Telegram."""
+    async def process_message(self, message_text, channel_id):
+        """Traite un message."""
         try:
-            print("🔄 Connexion à Telegram...")
+            # 1. Vérifier si signal (has tp + has sl)
+            if not self.has_tp_sl(message_text):
+                print("ℹ️ Pas un signal")
+                return
             
-            self.client = TelegramClient(
-                self.session_name,
-                self.api_id,
-                self.api_hash
-            )
+            print("✅ Signal détecté!")
             
-            await self.client.start()
+            # 2. Envoyer à ChatGPT
+            gpt = chatGpt(message_text, channel_id)
+            signal_data = gpt.get_signal()
             
-            if await self.client.is_user_authorized():
-                me = await self.client.get_me()
-                print(f"✅ Connecté: {me.first_name}")
-                return True
+            if not signal_data:
+                print("❌ ChatGPT n'a pas pu extraire le signal")
+                return
+            
+            print("✅ Signal extrait par ChatGPT")
+            
+            # 3. Vérifier cohérence
+            if not self.validate_signal(signal_data):
+                print("❌ Signal incohérent")
+                return
+            
+            print("✅ Signal validé")
+            
+            # 4. Créer 3 ordres individuels
+            orders = self.create_orders(signal_data)
+            
+            # 5. Placer les ordres
+            results = self.order_sender.place_orders(orders, [0.01, 0.01, 0.01])
+            
+            if results:
+                print(f"🎉 {len(results)} ordres placés!")
             else:
-                print("❌ Autorisation Telegram échouée")
-                return False
+                print("❌ Échec placement ordres")
                 
         except Exception as e:
-            print(f"❌ Erreur Telegram: {e}")
-            return False
+            print(f"❌ Erreur: {e}")
     
-    async def _verify_channels(self):
-        """Vérifie l'accès aux canaux."""
+    def has_tp_sl(self, text):
+        """Vérifie si le message contient TP et SL."""
+        has_tp = bool(re.search(r'(tp|take.?profit)', text, re.IGNORECASE))
+        has_sl = bool(re.search(r'(sl|stop.?loss)', text, re.IGNORECASE))
+        return has_tp and has_sl
+    
+    def validate_signal(self, signal_data):
+        """Valide la cohérence du signal."""
         try:
-            print("🔍 Vérification des canaux...")
+            symbol = signal_data['symbol']
+            sens = signal_data['sens']
+            sl = signal_data['sl']
+            entry_prices = signal_data['entry_prices']
+            tps = signal_data['tps']
             
-            # Tester Canal 1
-            try:
-                entity1 = await self.client.get_entity(self.channel_1_id)
-                print(f"✅ Canal 1 accessible: {getattr(entity1, 'title', 'Canal 1')}")
-            except Exception as e:
-                print(f"❌ Canal 1 inaccessible: {e}")
+            # Vérifier structure
+            if not all([symbol, sens, sl, entry_prices, tps]):
                 return False
             
-            # Tester Canal 2
-            try:
-                entity2 = await self.client.get_entity(self.channel_2_id)
-                print(f"✅ Canal 2 accessible: {getattr(entity2, 'title', 'Canal 2')}")
-            except Exception as e:
-                print(f"❌ Canal 2 inaccessible: {e}")
+            if len(entry_prices) != 3 or len(tps) != 3:
                 return False
+            
+            if sens not in ['BUY', 'SELL']:
+                return False
+            
+            # Vérifier cohérence prix
+            for i in range(3):
+                entry = entry_prices[i]
+                tp = tps[i]
+                
+                if sens == 'BUY':
+                    if sl >= entry or tp <= entry:
+                        return False
+                else:  # SELL
+                    if sl <= entry or tp >= entry:
+                        return False
             
             return True
             
-        except Exception as e:
-            print(f"❌ Erreur vérification canaux: {e}")
+        except Exception:
             return False
     
-    async def _start_listening(self):
-        """Démarre l'écoute des messages."""
-        print("🎧 Démarrage de l'écoute...")
+    def create_orders(self, signal_data):
+        """Crée 3 ordres individuels."""
+        orders = []
         
-        @self.client.on(events.NewMessage(chats=[self.channel_1_id, self.channel_2_id]))
-        async def handle_message(event):
+        for i in range(3):
+            order = {
+                'symbol': signal_data['symbol'],
+                'sens': signal_data['sens'],
+                'entry_price': signal_data['entry_prices'][i],
+                'sl': signal_data['sl'],
+                'tp': signal_data['tps'][i]
+            }
+            orders.append(order)
+        
+        return orders
+    
+    async def run(self):
+        """Lance le bot."""
+        if await self.start():
             try:
-                message_text = event.message.message
-                chat_id = event.chat_id
-                
-                # Identifier le canal
-                if chat_id == self.channel_1_id:
-                    channel_id = 1
-                    channel_name = "Canal 1"
-                elif chat_id == self.channel_2_id:
-                    channel_id = 2
-                    channel_name = "Canal 2"
-                else:
-                    return
-                
-                print(f"\n🆕 Message {channel_name}: {message_text[:50]}...")
-                
-                # Traiter le message
-                await self._process_message(message_text, channel_id)
-                
-            except Exception as e:
-                print(f"❌ Erreur traitement message: {e}")
-        
-        print("✅ Écoute active")
-    
-    async def _process_message(self, message_text, channel_id):
-        """Traite un message avec retry."""
-        max_retries = 2
-        
-        for attempt in range(max_retries + 1):
-            if attempt > 0:
-                print(f"🔄 Tentative {attempt + 1}/{max_retries + 1}")
-                await asyncio.sleep(2)
-            
-            try:
-                # 1. Vérifier si c'est un signal
-                class MockSignal:
-                    def __init__(self, text):
-                        self.text = text
-                
-                processor = SignalProcessor(MockSignal(message_text), channel_id)
-                
-                if not processor.is_signal():
-                    print("ℹ️ Pas un signal de trading")
-                    return
-                
-                # 2. Extraire le signal via ChatGPT
-                print(f"🤖 Envoi à ChatGPT (Canal {channel_id})...")
-                signals = processor.get_signal()
-                
-                if not signals or len(signals) != 3:
-                    print(f"❌ Tentative {attempt + 1}: Signal invalide")
-                    if attempt < max_retries:
-                        continue
-                    else:
-                        print("❌ Toutes les tentatives ont échoué")
-                        return
-                
-                print(f"✅ 3 signaux extraits")
-                
-                # 3. Vérifier le risque
-                account_info = self.order_sender.get_account_info()
-                if not account_info:
-                    print("❌ Impossible d'obtenir les infos du compte")
-                    return
-                
-                if not self.risk_manager.can_open_position(account_info):
-                    print("❌ Risque trop élevé")
-                    return
-                
-                # 4. Calculer les lots
-                lot_sizes = self.risk_manager.calculate_lot_sizes(signals)
-                
-                # 5. Placer les ordres
-                print("📈 Placement des ordres...")
-                results = self.order_sender.place_orders(signals, lot_sizes)
-                
-                if results and len(results) > 0:
-                    print(f"🎉 {len(results)} ordres placés avec succès!")
-                    return
-                else:
-                    print(f"❌ Tentative {attempt + 1}: Tous les ordres ont échoué")
-                    if attempt < max_retries:
-                        continue
-                    else:
-                        print("❌ Échec final après toutes les tentatives")
-                        return
-                
-            except Exception as e:
-                print(f"❌ Erreur tentative {attempt + 1}: {e}")
-                if attempt < max_retries:
-                    continue
-                else:
-                    print("❌ Échec final")
-                    return
-    
-    async def run_forever(self):
-        """Maintient le système en vie."""
-        try:
-            print("💡 Système actif... Ctrl+C pour arrêter")
-            
-            while self.is_running:
-                await asyncio.sleep(60)  # Vérification chaque minute
-                
-        except KeyboardInterrupt:
-            print("\n⏹️ Arrêt demandé")
-        except Exception as e:
-            print(f"\n💥 Erreur: {e}")
-        finally:
-            await self.stop_system()
-    
-    async def stop_system(self):
-        """Arrête le système."""
-        print("🛑 Arrêt du système...")
-        
-        self.is_running = False
-        
-        if self.client:
-            await self.client.disconnect()
-        
-        self.order_sender.close_connection()
-        
-        print("✅ Système arrêté")
+                print("💡 Bot actif... Ctrl+C pour arrêter")
+                await self.client.run_until_disconnected()
+            except KeyboardInterrupt:
+                print("\n⏹️ Arrêt du bot")
+            finally:
+                self.order_sender.close_connection()
 
-# Fonction principale
 async def main():
-    system = TradingSystemTelegram()
-    
-    if await system.start_system():
-        await system.run_forever()
-    else:
-        print("❌ Impossible de démarrer le système")
+    bot = TradingBot()
+    await bot.run()
 
 if __name__ == "__main__":
     asyncio.run(main())
