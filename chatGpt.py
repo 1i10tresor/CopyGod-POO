@@ -1,13 +1,11 @@
 from openai import OpenAI
-import dotenv
-import os
+from config import config
 import re
 import json
 
 class chatGpt():
     def __init__(self, signal, channel_id=1):
-        dotenv.load_dotenv()
-        self.gpt_key = os.getenv("GPT_KEY")
+        self.gpt_key = config.GPT_KEY
         self.signal = signal
         self.channel_id = channel_id
         

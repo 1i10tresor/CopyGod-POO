@@ -1,12 +1,13 @@
 import math
 import MetaTrader5 as mt5
 from info import Infos
+from config import config
 
 class RiskManager:
-    def __init__(self, total_risk_eur=300.0, max_risk_percentage=7.0):
-        self.total_risk_eur = total_risk_eur
-        self.risk_per_position = total_risk_eur / 3
-        self.max_risk_percentage = max_risk_percentage
+    def __init__(self):
+        self.total_risk_eur = config.TOTAL_RISK_EUR
+        self.risk_per_position = self.total_risk_eur / 3
+        self.max_risk_percentage = config.MAX_RISK_PERCENTAGE
     
     def can_open_position(self, account_info):
         """Vérifie si de nouvelles positions peuvent être ouvertes."""

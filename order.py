@@ -1,7 +1,7 @@
 import MetaTrader5 as mt5
 from datetime import datetime
 import time
-from config import trading_config
+from config import config
 
 class SendOrder:
     def __init__(self):
@@ -18,21 +18,18 @@ class SendOrder:
                 print(f"❌ Erreur d'initialisation MT5: {mt5.last_error()}")
                 return False
             
-            # Récupérer les identifiants
-            credentials = trading_config.get_mt5_credentials()
-            
-            if not all([credentials['login'], credentials['password'], credentials['server']]):
+            if not all([config.MT5_LOGIN, config.MT5_PASSWORD, config.MT5_SERVER]):
                 print("❌ Identifiants MT5 manquants")
                 mt5.shutdown()
                 return False
             
-            self.expected_demo_login = int(credentials['login'])
+            self.expected_demo_login = int(config.MT5_LOGIN)
             
             # Se connecter
             authorized = mt5.login(
                 login=self.expected_demo_login,
-                password=credentials['password'],
-                server=credentials['server']
+                password=config.MT5_PASSWORD,
+                server=config.MT5_SERVER
             )
             
             if not authorized:
