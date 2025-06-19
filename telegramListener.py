@@ -52,7 +52,7 @@ class TradingBot:
         # Écouter les messages
         @self.client.on(events.NewMessage(chats=[self.channel_1_id, self.channel_2_id]))
         async def handle_message(event):
-            message_text = event.message.message
+            message_text = event.message.text
             chat_id = event.chat_id
             
             # Identifier le canal
