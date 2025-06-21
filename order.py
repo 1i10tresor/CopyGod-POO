@@ -8,6 +8,7 @@ class SendOrder:
         self.account_type = account_type.upper()
         self.is_connected = False
         self.current_login = None
+        print(f"🔧 DEBUG: Initialisation SendOrder pour compte {self.account_type}")
         self._initialize_mt5()
     
     def _initialize_mt5(self):
@@ -15,34 +16,72 @@ class SendOrder:
         try:
             print(f"🔄 Connexion à MT5 ({self.account_type})...")
             
+            # DEBUG: Vérifier l'initialisation MT5
+            print("🔧 DEBUG: Tentative d'initialisation MT5...")
             if not mt5.initialize():
-                print(f"❌ Erreur d'initialisation MT5: {mt5.last_error()}")
+                error = mt5.last_error()
+                print(f"❌ Erreur d'initialisation MT5: {error}")
+                print(f"🔧 DEBUG: Code erreur MT5: {error}")
                 return False
             
-            # Obtenir les identifiants du compte
-            credentials = config.get_mt5_credentials(self.account_type)
+            print("✅ DEBUG: MT5 initialisé avec succès")
             
-            if not all([credentials['login'], credentials['password'], credentials['server']]):
-                print(f"❌ Identifiants MT5 manquants pour le compte {self.account_type}")
+            # DEBUG: Obtenir les identifiants
+            print(f"🔧 DEBUG: Récupération des identifiants pour {self.account_type}...")
+            credentials = config.get_mt5_credentials(self.account_type)
+            print(f"🔧 DEBUG: Credentials reçus: {credentials}")
+            
+            if not credentials['login']:
+                print(f"❌ DEBUG: Login manquant pour {self.account_type}")
+                print(f"🔧 DEBUG: Login value: '{credentials['login']}'")
+                mt5.shutdown()
+                return False
+                
+            if not credentials['password']:
+                print(f"❌ DEBUG: Password manquant pour {self.account_type}")
+                print(f"🔧 DEBUG: Password value: '{credentials['password']}'")
+                mt5.shutdown()
+                return False
+                
+            if not credentials['server']:
+                print(f"❌ DEBUG: Server manquant pour {self.account_type}")
+                print(f"🔧 DEBUG: Server value: '{credentials['server']}'")
                 mt5.shutdown()
                 return False
             
+            print(f"✅ DEBUG: Tous les identifiants présents")
+            print(f"🔧 DEBUG: Login: {credentials['login']}")
+            print(f"🔧 DEBUG: Server: {credentials['server']}")
+            print(f"🔧 DEBUG: Password: {'*' * len(str(credentials['password']))}")
+            
             self.current_login = credentials['login']
             
-            # Se connecter au compte spécifié
+            # DEBUG: Tentative de connexion
+            print(f"🔧 DEBUG: Tentative de connexion MT5...")
+            print(f"🔧 DEBUG: mt5.login(login={credentials['login']}, password=***, server={credentials['server']})")
+            
             authorized = mt5.login(
                 login=credentials['login'],
                 password=credentials['password'],
                 server=credentials['server']
             )
             
+            print(f"🔧 DEBUG: Résultat mt5.login(): {authorized}")
+            
             if not authorized:
-                print(f"❌ Échec connexion MT5 ({self.account_type}): {mt5.last_error()}")
+                error = mt5.last_error()
+                print(f"❌ Échec connexion MT5 ({self.account_type}): {error}")
+                print(f"🔧 DEBUG: Code erreur connexion: {error}")
+                print(f"🔧 DEBUG: Détails erreur: {error}")
                 mt5.shutdown()
                 return False
             
+            print(f"✅ DEBUG: Connexion MT5 réussie")
+            
             # Vérifier la connexion
+            print(f"🔧 DEBUG: Vérification du compte...")
             if not self._verify_account():
+                print(f"❌ DEBUG: Échec vérification compte")
                 mt5.shutdown()
                 return False
             
@@ -52,15 +91,24 @@ class SendOrder:
             
         except Exception as e:
             print(f"❌ Erreur initialisation MT5: {e}")
+            print(f"🔧 DEBUG: Exception détaillée: {type(e).__name__}: {str(e)}")
+            import traceback
+            print(f"🔧 DEBUG: Traceback: {traceback.format_exc()}")
             return False
     
     def _verify_account(self):
         """Vérifie que nous sommes connectés au bon compte."""
         try:
+            print(f"🔧 DEBUG: Récupération des infos du compte...")
             account_info = mt5.account_info()
+            
             if not account_info:
+                error = mt5.last_error()
                 print("❌ Impossible d'obtenir les infos du compte")
+                print(f"🔧 DEBUG: Erreur account_info: {error}")
                 return False
+            
+            print(f"🔧 DEBUG: Account info reçu: Login={account_info.login}, Expected={self.current_login}")
             
             if account_info.login != self.current_login:
                 print(f"❌ Mauvais compte connecté: {account_info.login} != {self.current_login}")
@@ -69,11 +117,13 @@ class SendOrder:
             # Afficher le type de compte
             account_type_str = "DÉMO" if account_info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO else "RÉEL"
             print(f"📊 Compte {account_type_str} - Balance: {account_info.balance} {account_info.currency}")
+            print(f"🔧 DEBUG: Trade mode: {account_info.trade_mode}")
             
             return True
             
         except Exception as e:
             print(f"❌ Erreur vérification compte: {e}")
+            print(f"🔧 DEBUG: Exception vérification: {type(e).__name__}: {str(e)}")
             return False
     
     def get_account_info(self):
