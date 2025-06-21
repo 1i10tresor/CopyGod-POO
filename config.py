@@ -29,7 +29,7 @@ class Config:
     TELEGRAM_CHANNEL_1_ID = int(os.getenv("TELEGRAM_CHANNEL_1_ID", "-2125503665"))
     TELEGRAM_CHANNEL_2_ID = int(os.getenv("TELEGRAM_CHANNEL_2_ID", "-2259371711"))
     
-    # Comptes MT5
+    # Comptes MT5 - Utilisation des noms de variables de votre .env
     # Compte MAT
     MT5_MAT_LOGIN = os.getenv("MT5_MAT_LOGIN", "")
     MT5_MAT_PASSWORD = os.getenv("MT5_MAT_MDP", "")
@@ -47,19 +47,21 @@ class Config:
     
     def get_mt5_credentials(self, account_type):
         """Retourne les identifiants MT5 selon le type de compte."""
-        if account_type.upper() == 'MAT':
+        account_type = account_type.upper()
+        
+        if account_type == 'MAT':
             return {
                 'login': int(self.MT5_MAT_LOGIN) if self.MT5_MAT_LOGIN else None,
                 'password': self.MT5_MAT_PASSWORD,
                 'server': self.MT5_MAT_SERVER
             }
-        elif account_type.upper() == 'DID':
+        elif account_type == 'DID':
             return {
                 'login': int(self.MT5_DID_LOGIN) if self.MT5_DID_LOGIN else None,
                 'password': self.MT5_DID_PASSWORD,
                 'server': self.MT5_DID_SERVER
             }
-        elif account_type.upper() == 'DEMO':
+        elif account_type == 'DEMO':
             return {
                 'login': int(self.MT5_DEMO_LOGIN) if self.MT5_DEMO_LOGIN else None,
                 'password': self.MT5_DEMO_PASSWORD,

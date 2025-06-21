@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 def test_configuration():
     """Teste la configuration du système."""
     print("🔧 TEST DE CONFIGURATION")
-    print("=" * 40)
+    print("=" * 50)
     
     # Charger le .env
     if not os.path.exists('.env'):
@@ -27,7 +27,7 @@ def test_configuration():
     mat_api_id = os.getenv("TELEGRAM_MAT_API_ID", "0")
     mat_api_hash = os.getenv("TELEGRAM_MAT_API_HASH", "")
     
-    if mat_api_id == "0":
+    if mat_api_id == "0" or not mat_api_id:
         errors.append("TELEGRAM_MAT_API_ID non configuré")
     else:
         print(f"✅ MAT API_ID: {mat_api_id}")
@@ -42,7 +42,7 @@ def test_configuration():
     did_api_id = os.getenv("TELEGRAM_DID_API_ID", "0")
     did_api_hash = os.getenv("TELEGRAM_DID_API_HASH", "")
     
-    if did_api_id == "0":
+    if did_api_id == "0" or not did_api_id:
         warnings.append("TELEGRAM_DID_API_ID non configuré")
     else:
         print(f"✅ DID API_ID: {did_api_id}")
@@ -58,10 +58,12 @@ def test_configuration():
     
     if not gpt_key:
         errors.append("GPT_KEY non configuré")
+    elif not gpt_key.startswith("sk-"):
+        errors.append("GPT_KEY semble invalide (doit commencer par 'sk-')")
     else:
-        print(f"✅ GPT_KEY: {gpt_key[:12]}...")
+        print(f"✅ GPT_KEY: {gpt_key[:20]}...")
     
-    # Test MT5 Accounts
+    # Test MT5 Accounts avec les bons noms de variables
     print("\n📈 Configuration MT5:")
     accounts = [
         ('MAT', 'MT5_MAT_LOGIN', 'MT5_MAT_MDP', 'MT5_MAT_SERVEUR'),
@@ -109,8 +111,16 @@ def test_configuration():
     else:
         warnings.append("TELEGRAM_CHANNEL_2_ID non configuré")
     
+    # Test compte actif
+    print("\n⚙️ Configuration Active:")
+    telegram_active = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "MAT")
+    mt5_active = os.getenv("MT5_ACTIVE_ACCOUNT", "DEMO")
+    
+    print(f"📱 Telegram actif: {telegram_active}")
+    print(f"📈 MT5 actif: {mt5_active}")
+    
     # Résumé
-    print("\n" + "=" * 40)
+    print("\n" + "=" * 50)
     print("📋 RÉSUMÉ:")
     
     if errors:
@@ -141,3 +151,10 @@ if __name__ == "__main__":
         print("   python launch_telegram_bot.py")
     else:
         print("\n🔧 Corrigez d'abord les erreurs dans le fichier .env")
+        print("\n💡 Vérifiez que votre fichier .env contient:")
+        print("   - TELEGRAM_MAT_API_ID=22757187")
+        print("   - TELEGRAM_MAT_API_HASH=4b8c65f754c80ee53a55c162d141042d")
+        print("   - MT5_DEMO_LOGIN=166552")
+        print("   - MT5_DEMO_MDP=g:y2c4Ju89")
+        print("   - MT5_DEMO_SERVEUR=FusionMarkets-Demo")
+        print("   - GPT_KEY=sk-proj-...")
