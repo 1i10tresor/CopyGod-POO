@@ -4,31 +4,62 @@ import MetaTrader5 as mt5
 from datetime import datetime, timedelta
 import json
 import os
+from config import config
 
 app = Flask(__name__)
 CORS(app)
 
 class TradingAPI:
-    def __init__(self):
+    def __init__(self, account_type='DEMO'):
+        self.account_type = account_type.upper()
         self.is_connected = False
+        self.current_login = None
         self._connect_mt5()
     
     def _connect_mt5(self):
-        """Connexion à MT5"""
+        """Connexion à MT5 sur le compte spécifié."""
         try:
             if not mt5.initialize():
                 print(f"❌ Erreur MT5: {mt5.last_error()}")
                 return False
             
+            # Obtenir les identifiants du compte
+            credentials = config.get_mt5_credentials(self.account_type)
+            
+            if not all([credentials['login'], credentials['password'], credentials['server']]):
+                print(f"❌ Identifiants MT5 manquants pour le compte {self.account_type}")
+                return False
+            
+            self.current_login = credentials['login']
+            
+            # Se connecter
+            authorized = mt5.login(
+                login=credentials['login'],
+                password=credentials['password'],
+                server=credentials['server']
+            )
+            
+            if not authorized:
+                print(f"❌ Échec connexion MT5 ({self.account_type}): {mt5.last_error()}")
+                return False
+            
+            # Vérifier la connexion
+            account_info = mt5.account_info()
+            if not account_info or account_info.login != self.current_login:
+                print(f"❌ Connexion au mauvais compte")
+                return False
+            
             self.is_connected = True
-            print("✅ API connectée à MT5")
+            account_type_str = "DÉMO" if account_info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO else "RÉEL"
+            print(f"✅ API connectée à MT5 ({self.account_type}) - Compte {account_type_str}")
             return True
+            
         except Exception as e:
             print(f"❌ Erreur connexion MT5: {e}")
             return False
     
     def get_account_info(self):
-        """Récupère les infos du compte"""
+        """Récupère les infos du compte."""
         if not self.is_connected:
             return None
         
@@ -36,10 +67,13 @@ class TradingAPI:
             account_info = mt5.account_info()
             if account_info:
                 return {
+                    'login': account_info.login,
                     'balance': account_info.balance,
                     'equity': account_info.equity,
                     'freeMargin': account_info.margin_free,
-                    'currency': account_info.currency
+                    'currency': account_info.currency,
+                    'accountType': self.account_type,
+                    'isDemo': account_info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO
                 }
         except Exception as e:
             print(f"❌ Erreur récupération compte: {e}")
@@ -47,7 +81,7 @@ class TradingAPI:
         return None
     
     def get_open_orders(self):
-        """Récupère les ordres ouverts"""
+        """Récupère les ordres ouverts."""
         if not self.is_connected:
             return []
         
@@ -69,6 +103,7 @@ class TradingAPI:
                         'tp': pos.tp,
                         'status': 'OPEN',
                         'pnl': pos.profit,
+                        'accountType': self.account_type,
                         'timestamp': datetime.fromtimestamp(pos.time).isoformat()
                     })
             
@@ -87,6 +122,7 @@ class TradingAPI:
                         'tp': order.tp,
                         'status': 'PENDING',
                         'pnl': 0,
+                        'accountType': self.account_type,
                         'timestamp': datetime.fromtimestamp(order.time_setup).isoformat()
                     })
             
@@ -97,7 +133,7 @@ class TradingAPI:
             return []
     
     def get_history(self, days=7):
-        """Récupère l'historique des trades"""
+        """Récupère l'historique des trades."""
         if not self.is_connected:
             return []
         
@@ -137,6 +173,7 @@ class TradingAPI:
                                 'exitPrice': close_deal.price,
                                 'pnl': close_deal.profit,
                                 'duration': duration,
+                                'accountType': self.account_type,
                                 'closeTime': datetime.fromtimestamp(close_deal.time).isoformat()
                             })
             
@@ -147,7 +184,7 @@ class TradingAPI:
             return []
     
     def get_statistics(self):
-        """Calcule les statistiques"""
+        """Calcule les statistiques."""
         try:
             history = self.get_history(30)  # 30 derniers jours
             
@@ -198,7 +235,8 @@ class TradingAPI:
                     'channel1': self._calculate_channel_stats(channel1_trades),
                     'channel2': self._calculate_channel_stats(channel2_trades)
                 },
-                'symbols': symbol_stats
+                'symbols': symbol_stats,
+                'accountType': self.account_type
             }
             
         except Exception as e:
@@ -206,7 +244,7 @@ class TradingAPI:
             return self._empty_stats()
     
     def _calculate_channel_stats(self, trades):
-        """Calcule les stats d'un canal"""
+        """Calcule les stats d'un canal."""
         if not trades:
             return {
                 'totalSignals': 0,
@@ -233,18 +271,19 @@ class TradingAPI:
         }
     
     def _empty_stats(self):
-        """Stats vides par défaut"""
+        """Stats vides par défaut."""
         return {
             'global': {'winRate': 0, 'avgRR': 0, 'totalSignals': 0},
             'channels': {
                 'channel1': {'totalSignals': 0, 'winRate': 0, 'avgRR': 0, 'totalPnl': 0, 'bestTrade': 0, 'worstTrade': 0},
                 'channel2': {'totalSignals': 0, 'winRate': 0, 'avgRR': 0, 'totalPnl': 0, 'bestTrade': 0, 'worstTrade': 0}
             },
-            'symbols': []
+            'symbols': [],
+            'accountType': self.account_type
         }
     
     def _extract_channel_from_comment(self, comment):
-        """Extrait le numéro de canal du commentaire"""
+        """Extrait le numéro de canal du commentaire."""
         if not comment:
             return 1
         
@@ -253,7 +292,7 @@ class TradingAPI:
         return 1
     
     def close_order(self, order_id):
-        """Ferme un ordre"""
+        """Ferme un ordre."""
         try:
             # Convertir l'ID en entier
             ticket = int(order_id)
@@ -272,14 +311,14 @@ class TradingAPI:
                     "position": ticket,
                     "deviation": 20,
                     "magic": 234000,
-                    "comment": "Fermeture manuelle",
+                    "comment": f"Fermeture manuelle-{self.account_type}",
                     "type_time": mt5.ORDER_TIME_GTC,
                     "type_filling": mt5.ORDER_FILLING_IOC,
                 }
                 
                 result = mt5.order_send(request)
                 if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                    return {'success': True, 'message': 'Position fermée'}
+                    return {'success': True, 'message': f'Position fermée sur {self.account_type}'}
                 else:
                     return {'success': False, 'message': f'Erreur: {result.comment if result else "Inconnue"}'}
             
@@ -293,7 +332,7 @@ class TradingAPI:
                 
                 result = mt5.order_send(request)
                 if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                    return {'success': True, 'message': 'Ordre annulé'}
+                    return {'success': True, 'message': f'Ordre annulé sur {self.account_type}'}
                 else:
                     return {'success': False, 'message': f'Erreur: {result.comment if result else "Inconnue"}'}
             
@@ -302,50 +341,82 @@ class TradingAPI:
         except Exception as e:
             return {'success': False, 'message': f'Erreur: {str(e)}'}
 
-# Instance globale de l'API
-trading_api = TradingAPI()
+def get_account_selection():
+    """Demande le choix du compte pour l'API."""
+    print("\n📊 SÉLECTION DU COMPTE MT5 POUR L'API")
+    print("=" * 40)
+    print("1. MAT   - Compte MAT")
+    print("2. DID   - Compte DID") 
+    print("3. DEMO  - Compte Démo")
+    print("=" * 40)
+    
+    while True:
+        try:
+            choice = input("Choisir le compte pour l'API (1/2/3): ").strip()
+            
+            if choice == '1':
+                return 'MAT'
+            elif choice == '2':
+                return 'DID'
+            elif choice == '3':
+                return 'DEMO'
+            else:
+                print("❌ Choix invalide. Veuillez entrer 1, 2 ou 3")
+                
+        except KeyboardInterrupt:
+            print("\n❌ Annulé")
+            exit()
 
-# Routes API
-@app.route('/api/account', methods=['GET'])
-def get_account():
-    account_info = trading_api.get_account_info()
-    if account_info:
-        return jsonify(account_info)
-    return jsonify({'error': 'Impossible de récupérer les infos du compte'}), 500
-
-@app.route('/api/orders', methods=['GET'])
-def get_orders():
-    orders = trading_api.get_open_orders()
-    return jsonify(orders)
-
-@app.route('/api/history', methods=['GET'])
-def get_history():
-    days = request.args.get('days', 7, type=int)
-    history = trading_api.get_history(days)
-    return jsonify(history)
-
-@app.route('/api/statistics', methods=['GET'])
-def get_statistics():
-    stats = trading_api.get_statistics()
-    return jsonify(stats)
-
-@app.route('/api/orders/<order_id>/close', methods=['POST'])
-def close_order(order_id):
-    result = trading_api.close_order(order_id)
-    if result['success']:
-        return jsonify(result)
-    return jsonify(result), 400
-
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    return jsonify({
-        'status': 'ok',
-        'mt5_connected': trading_api.is_connected,
-        'timestamp': datetime.now().isoformat()
-    })
-
+# Sélection du compte au démarrage
 if __name__ == '__main__':
+    account_type = get_account_selection()
+    print(f"✅ API configurée pour le compte {account_type}")
+    
+    # Instance globale de l'API
+    trading_api = TradingAPI(account_type)
+
+    # Routes API
+    @app.route('/api/account', methods=['GET'])
+    def get_account():
+        account_info = trading_api.get_account_info()
+        if account_info:
+            return jsonify(account_info)
+        return jsonify({'error': 'Impossible de récupérer les infos du compte'}), 500
+
+    @app.route('/api/orders', methods=['GET'])
+    def get_orders():
+        orders = trading_api.get_open_orders()
+        return jsonify(orders)
+
+    @app.route('/api/history', methods=['GET'])
+    def get_history():
+        days = request.args.get('days', 7, type=int)
+        history = trading_api.get_history(days)
+        return jsonify(history)
+
+    @app.route('/api/statistics', methods=['GET'])
+    def get_statistics():
+        stats = trading_api.get_statistics()
+        return jsonify(stats)
+
+    @app.route('/api/orders/<order_id>/close', methods=['POST'])
+    def close_order(order_id):
+        result = trading_api.close_order(order_id)
+        if result['success']:
+            return jsonify(result)
+        return jsonify(result), 400
+
+    @app.route('/api/health', methods=['GET'])
+    def health_check():
+        return jsonify({
+            'status': 'ok',
+            'mt5_connected': trading_api.is_connected,
+            'account_type': trading_api.account_type,
+            'timestamp': datetime.now().isoformat()
+        })
+
     print("🚀 Démarrage du serveur API...")
+    print(f"📊 Compte connecté: {account_type}")
     print("📊 Interface web: http://localhost:3000")
     print("🔌 API: http://localhost:8000")
     app.run(host='0.0.0.0', port=8000, debug=True)

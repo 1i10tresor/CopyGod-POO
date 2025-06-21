@@ -7,11 +7,12 @@ from riskManager import RiskManager
 import re
 
 class TradingBot:
-    def __init__(self, risk_per_signal_eur):
+    def __init__(self, risk_per_signal_eur, account_type):
         # Configuration
         self.api_id = config.TELEGRAM_API_ID
         self.api_hash = config.TELEGRAM_API_HASH
         self.session_name = config.TELEGRAM_SESSION_NAME
+        self.account_type = account_type.upper()
         
         # IDs des canaux
         self.channel_1_id = -1002125503665
@@ -19,12 +20,12 @@ class TradingBot:
         
         # Composants
         self.client = None
-        self.order_sender = SendOrder()
+        self.order_sender = SendOrder(account_type)
         self.risk_manager = RiskManager(risk_per_signal_eur)
         
     async def start(self):
         """Démarre le bot."""
-        print("🚀 Démarrage du bot...")
+        print(f"🚀 Démarrage du bot sur le compte {self.account_type}...")
         
         # Connexion Telegram
         self.client = TelegramClient(self.session_name, self.api_id, self.api_hash)
@@ -39,7 +40,7 @@ class TradingBot:
         
         # Vérifier MT5
         if not self.order_sender.is_connected:
-            print("❌ MT5 non connecté")
+            print(f"❌ MT5 non connecté sur le compte {self.account_type}")
             return False
         
         # Vérifier canaux
@@ -68,7 +69,7 @@ class TradingBot:
             print(f"\n📨 Message Canal {channel_id}: {message_text[:50]}...")
             await self.process_message(message_text, channel_id)
         
-        print("🎧 Écoute active...")
+        print(f"🎧 Écoute active sur le compte {self.account_type}...")
         return True
     
     async def process_message(self, message_text, channel_id):
@@ -104,13 +105,14 @@ class TradingBot:
             # 5. Calculer les tailles de lot
             lot_sizes = self.risk_manager.calculate_lot_sizes(orders)
             
-            # 6. Placer les ordres
+            # 6. Placer les ordres sur le compte spécifié
+            print(f"📈 Placement des ordres sur le compte {self.account_type}...")
             results = self.order_sender.place_orders(orders, lot_sizes)
             
             if results:
-                print(f"🎉 {len(results)} ordres placés!")
+                print(f"🎉 {len(results)} ordres placés sur {self.account_type}!")
             else:
-                print("❌ Échec placement ordres")
+                print(f"❌ Échec placement ordres sur {self.account_type}")
                 
         except Exception as e:
             print(f"❌ Erreur: {e}")
@@ -177,12 +179,38 @@ class TradingBot:
         """Lance le bot."""
         if await self.start():
             try:
-                print("💡 Bot actif... Ctrl+C pour arrêter")
+                print(f"💡 Bot actif sur {self.account_type}... Ctrl+C pour arrêter")
                 await self.client.run_until_disconnected()
             except KeyboardInterrupt:
                 print("\n⏹️ Arrêt du bot")
             finally:
                 self.order_sender.close_connection()
+
+def get_account_selection():
+    """Demande le choix du compte à l'utilisateur."""
+    print("\n📊 SÉLECTION DU COMPTE MT5")
+    print("=" * 30)
+    print("1. MAT   - Compte MAT")
+    print("2. DID   - Compte DID") 
+    print("3. DEMO  - Compte Démo")
+    print("=" * 30)
+    
+    while True:
+        try:
+            choice = input("Choisir le compte (1/2/3): ").strip()
+            
+            if choice == '1':
+                return 'MAT'
+            elif choice == '2':
+                return 'DID'
+            elif choice == '3':
+                return 'DEMO'
+            else:
+                print("❌ Choix invalide. Veuillez entrer 1, 2 ou 3")
+                
+        except KeyboardInterrupt:
+            print("\n❌ Annulé")
+            exit()
 
 def get_risk_input():
     """Demande le risque à l'utilisateur."""
@@ -212,16 +240,29 @@ async def main():
     print("🤖 SYSTÈME DE TRADING TELEGRAM")
     print("=" * 40)
     
+    # Sélection du compte
+    account_type = get_account_selection()
+    print(f"✅ Compte sélectionné: {account_type}")
+    
     # Demander le risque
     risk_per_signal = get_risk_input()
     
-    print(f"\n✅ Risque configuré: {risk_per_signal}€ par signal")
-    print(f"📊 Répartition: {risk_per_signal/3:.2f}€ par position")
+    print(f"\n✅ Configuration:")
+    print(f"📊 Compte: {account_type}")
+    print(f"💰 Risque: {risk_per_signal}€ par signal")
+    print(f"📈 Répartition: {risk_per_signal/3:.2f}€ par position")
     print("🔄 Arrondi: Toujours à l'inférieur")
     print("🛡️ Garantie: Risque jamais dépassé")
     
+    # Confirmation finale
+    print(f"\n⚠️ Les ordres seront passés sur le compte {account_type}")
+    confirm = input("Continuer ? (oui/non): ").lower().strip()
+    if confirm not in ['oui', 'o', 'yes', 'y']:
+        print("❌ Lancement annulé")
+        return
+    
     # Lancer le bot
-    bot = TradingBot(risk_per_signal)
+    bot = TradingBot(risk_per_signal, account_type)
     await bot.run()
 
 if __name__ == "__main__":

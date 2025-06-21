@@ -12,7 +12,7 @@ def print_startup_info():
     print("🤖 SYSTÈME DE TRADING TELEGRAM")
     print("=" * 60)
     print("✅ Connexion automatique Telegram")
-    print("✅ Connexion forcée compte MT5 démo")
+    print("✅ Choix du compte MT5 (MAT/DID/DEMO)")
     print("✅ Surveillance 2 canaux Telegram")
     print("✅ Gestion risque personnalisée")
     print("✅ 3 ordres par signal")
@@ -41,7 +41,7 @@ async def launch_system():
         return
     
     print("🚀 Lancement du système...")
-    print("⚠️ Ordres réels sur MT5 (compte démo)")
+    print("⚠️ Vous allez choisir le compte MT5 pour les ordres")
     print()
     
     response = input("Continuer ? (oui/non): ").lower().strip()

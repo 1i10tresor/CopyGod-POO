@@ -4,67 +4,71 @@ import time
 from config import config
 
 class SendOrder:
-    def __init__(self):
+    def __init__(self, account_type='DEMO'):
+        self.account_type = account_type.upper()
         self.is_connected = False
-        self.expected_demo_login = None
+        self.current_login = None
         self._initialize_mt5()
     
     def _initialize_mt5(self):
-        """Initialise la connexion MT5 au compte démo."""
+        """Initialise la connexion MT5 au compte spécifié."""
         try:
-            print("🔄 Connexion à MT5...")
+            print(f"🔄 Connexion à MT5 ({self.account_type})...")
             
             if not mt5.initialize():
                 print(f"❌ Erreur d'initialisation MT5: {mt5.last_error()}")
                 return False
             
-            if not all([config.MT5_LOGIN, config.MT5_PASSWORD, config.MT5_SERVER]):
-                print("❌ Identifiants MT5 manquants")
+            # Obtenir les identifiants du compte
+            credentials = config.get_mt5_credentials(self.account_type)
+            
+            if not all([credentials['login'], credentials['password'], credentials['server']]):
+                print(f"❌ Identifiants MT5 manquants pour le compte {self.account_type}")
                 mt5.shutdown()
                 return False
             
-            self.expected_demo_login = int(config.MT5_LOGIN)
+            self.current_login = credentials['login']
             
-            # Se connecter
+            # Se connecter au compte spécifié
             authorized = mt5.login(
-                login=self.expected_demo_login,
-                password=config.MT5_PASSWORD,
-                server=config.MT5_SERVER
+                login=credentials['login'],
+                password=credentials['password'],
+                server=credentials['server']
             )
             
             if not authorized:
-                print(f"❌ Échec connexion MT5: {mt5.last_error()}")
+                print(f"❌ Échec connexion MT5 ({self.account_type}): {mt5.last_error()}")
                 mt5.shutdown()
                 return False
             
-            # Vérifier que c'est un compte démo
-            if not self._verify_demo_account():
+            # Vérifier la connexion
+            if not self._verify_account():
                 mt5.shutdown()
                 return False
             
             self.is_connected = True
-            print("✅ Connexion MT5 établie (compte démo)")
+            print(f"✅ Connexion MT5 établie sur le compte {self.account_type} (Login: {self.current_login})")
             return True
             
         except Exception as e:
             print(f"❌ Erreur initialisation MT5: {e}")
             return False
     
-    def _verify_demo_account(self):
-        """Vérifie que nous sommes sur un compte démo."""
+    def _verify_account(self):
+        """Vérifie que nous sommes connectés au bon compte."""
         try:
             account_info = mt5.account_info()
             if not account_info:
                 print("❌ Impossible d'obtenir les infos du compte")
                 return False
             
-            if account_info.login != self.expected_demo_login:
-                print(f"❌ Mauvais compte: {account_info.login} != {self.expected_demo_login}")
+            if account_info.login != self.current_login:
+                print(f"❌ Mauvais compte connecté: {account_info.login} != {self.current_login}")
                 return False
             
-            if account_info.trade_mode != mt5.ACCOUNT_TRADE_MODE_DEMO:
-                print("🚨 ATTENTION: Ce n'est pas un compte démo!")
-                return False
+            # Afficher le type de compte
+            account_type_str = "DÉMO" if account_info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO else "RÉEL"
+            print(f"📊 Compte {account_type_str} - Balance: {account_info.balance} {account_info.currency}")
             
             return True
             
@@ -74,7 +78,7 @@ class SendOrder:
     
     def get_account_info(self):
         """Retourne les informations du compte."""
-        if not self._verify_demo_account():
+        if not self._verify_account():
             return None
         
         try:
@@ -87,7 +91,8 @@ class SendOrder:
                     'margin': account_info.margin,
                     'free_margin': account_info.margin_free,
                     'currency': account_info.currency,
-                    'is_demo': account_info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO
+                    'is_demo': account_info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO,
+                    'account_type': self.account_type
                 }
             return None
         except Exception as e:
@@ -96,20 +101,20 @@ class SendOrder:
     
     def place_orders(self, signals, lot_sizes):
         """Place 3 ordres individuels."""
-        if not self._verify_demo_account():
-            print("🚫 Placement annulé - Compte démo non confirmé")
+        if not self._verify_account():
+            print(f"🚫 Placement annulé - Compte {self.account_type} non confirmé")
             return []
         
         results = []
         
         for i, (signal, lot_size) in enumerate(zip(signals, lot_sizes)):
-            print(f"\n📈 Placement ordre {i+1}/3...")
+            print(f"\n📈 Placement ordre {i+1}/3 sur {self.account_type}...")
             result = self._place_single_order(signal, lot_size, i+1)
             if result:
                 results.append(result)
             time.sleep(0.1)  # Pause entre ordres
         
-        print(f"✅ {len(results)}/3 ordres placés avec succès")
+        print(f"✅ {len(results)}/3 ordres placés avec succès sur {self.account_type}")
         return results
     
     def _place_single_order(self, signal, lot_size, order_number):
@@ -172,7 +177,7 @@ class SendOrder:
                 "tp": tp_price,
                 "deviation": 20,
                 "magic": 234000 + order_number,
-                "comment": f"Signal-{order_number}-DEMO",
+                "comment": f"Signal-{order_number}-{self.account_type}",
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
@@ -202,6 +207,7 @@ class SendOrder:
                 'sl': sl_price,
                 'tp': tp_price,
                 'mt5_order_id': result.order,
+                'account_type': self.account_type,
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -214,4 +220,4 @@ class SendOrder:
         if self.is_connected:
             mt5.shutdown()
             self.is_connected = False
-            print("🔴 Connexion MT5 fermée")
+            print(f"🔴 Connexion MT5 fermée ({self.account_type})")
