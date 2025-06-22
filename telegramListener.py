@@ -10,7 +10,7 @@ class TradingBot:
     def __init__(self, risk_per_signal_eur, account_type, telegram_account=None):
         # Configuration Telegram
         if telegram_account is None:
-            telegram_account = "MAT"  # Par défaut
+            telegram_account = "DID"  # Par défaut DID au lieu de MAT
         
         telegram_creds = config.get_telegram_credentials(telegram_account)
         self.api_id = telegram_creds['api_id']
@@ -199,23 +199,20 @@ def get_account_selection():
     """Demande le choix du compte MT5 à l'utilisateur."""
     print("\n📈 SÉLECTION DU COMPTE MT5")
     print("=" * 30)
-    print("1. MAT   - Compte MAT")
-    print("2. DID   - Compte DID") 
-    print("3. DEMO  - Compte Démo")
+    print("1. DID   - Compte DID")
+    print("2. DEMO  - Compte Démo")
     print("=" * 30)
     
     while True:
         try:
-            choice = input("Choisir le compte MT5 (1/2/3): ").strip()
+            choice = input("Choisir le compte MT5 (1/2): ").strip()
             
             if choice == '1':
-                return 'MAT'
-            elif choice == '2':
                 return 'DID'
-            elif choice == '3':
+            elif choice == '2':
                 return 'DEMO'
             else:
-                print("❌ Choix invalide. Veuillez entrer 1, 2 ou 3")
+                print("❌ Choix invalide. Veuillez entrer 1 ou 2")
                 
         except KeyboardInterrupt:
             print("\n❌ Annulé")
@@ -225,20 +222,17 @@ def get_telegram_account_selection():
     """Demande le choix du compte Telegram à l'utilisateur."""
     print("\n📱 SÉLECTION DU COMPTE TELEGRAM")
     print("=" * 35)
-    print("1. MAT   - Compte Telegram MAT")
-    print("2. DID   - Compte Telegram DID")
+    print("1. DID   - Compte Telegram DID")
     print("=" * 35)
     
     while True:
         try:
-            choice = input("Choisir le compte Telegram (1/2): ").strip()
+            choice = input("Choisir le compte Telegram (1): ").strip()
             
-            if choice == '1':
-                return 'MAT'
-            elif choice == '2':
+            if choice == '1' or choice == '':
                 return 'DID'
             else:
-                print("❌ Choix invalide. Veuillez entrer 1 ou 2")
+                print("❌ Choix invalide. Veuillez entrer 1")
                 
         except KeyboardInterrupt:
             print("\n❌ Annulé")

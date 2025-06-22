@@ -39,7 +39,7 @@ def debug_mt5_connection():
     # Test 3: Vérifier les variables d'environnement
     print("\n3️⃣ Test des variables d'environnement:")
     
-    accounts = ['MAT', 'DID', 'DEMO']
+    accounts = ['DID', 'DEMO']  # Suppression de MAT
     for account in accounts:
         print(f"\n📊 Compte {account}:")
         

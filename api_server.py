@@ -345,23 +345,20 @@ def get_account_selection():
     """Demande le choix du compte pour l'API."""
     print("\n📊 SÉLECTION DU COMPTE MT5 POUR L'API")
     print("=" * 40)
-    print("1. MAT   - Compte MAT")
-    print("2. DID   - Compte DID") 
-    print("3. DEMO  - Compte Démo")
+    print("1. DID   - Compte DID")
+    print("2. DEMO  - Compte Démo")
     print("=" * 40)
     
     while True:
         try:
-            choice = input("Choisir le compte pour l'API (1/2/3): ").strip()
+            choice = input("Choisir le compte pour l'API (1/2): ").strip()
             
             if choice == '1':
-                return 'MAT'
-            elif choice == '2':
                 return 'DID'
-            elif choice == '3':
+            elif choice == '2':
                 return 'DEMO'
             else:
-                print("❌ Choix invalide. Veuillez entrer 1, 2 ou 3")
+                print("❌ Choix invalide. Veuillez entrer 1 ou 2")
                 
         except KeyboardInterrupt:
             print("\n❌ Annulé")

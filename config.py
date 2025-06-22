@@ -7,17 +7,17 @@ class Config:
     # Telegram - Configuration dynamique selon le compte actif
     @property
     def TELEGRAM_API_ID(self):
-        active_account = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "MAT")
+        active_account = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "DID")
         return int(os.getenv(f"TELEGRAM_{active_account}_API_ID", "0"))
     
     @property
     def TELEGRAM_API_HASH(self):
-        active_account = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "MAT")
+        active_account = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "DID")
         return os.getenv(f"TELEGRAM_{active_account}_API_HASH", "")
     
     @property
     def TELEGRAM_SESSION_NAME(self):
-        active_account = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "MAT")
+        active_account = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "DID")
         return os.getenv(f"TELEGRAM_{active_account}_SESSION", f"{active_account}.session")
     
     # Trading
@@ -29,12 +29,7 @@ class Config:
     TELEGRAM_CHANNEL_1_ID = int(os.getenv("TELEGRAM_CHANNEL_1_ID", "-2125503665"))
     TELEGRAM_CHANNEL_2_ID = int(os.getenv("TELEGRAM_CHANNEL_2_ID", "-2259371711"))
     
-    # Comptes MT5 - Utilisation des noms de variables de votre .env
-    # Compte MAT
-    MT5_MAT_LOGIN = os.getenv("MT5_MAT_LOGIN", "")
-    MT5_MAT_PASSWORD = os.getenv("MT5_MAT_MDP", "")
-    MT5_MAT_SERVER = os.getenv("MT5_MAT_SERVEUR", "")
-    
+    # Comptes MT5 - Seulement DID et DEMO
     # Compte DID
     MT5_DID_LOGIN = os.getenv("MT5_DID_LOGIN", "")
     MT5_DID_PASSWORD = os.getenv("MT5_DID_MDP", "")
@@ -51,12 +46,7 @@ class Config:
         
         print(f"🔧 DEBUG: get_mt5_credentials appelé pour {account_type}")
         
-        if account_type == 'MAT':
-            login = self.MT5_MAT_LOGIN
-            password = self.MT5_MAT_PASSWORD
-            server = self.MT5_MAT_SERVER
-            print(f"🔧 DEBUG: MAT - Login: '{login}', Password: '{password}', Server: '{server}'")
-        elif account_type == 'DID':
+        if account_type == 'DID':
             login = self.MT5_DID_LOGIN
             password = self.MT5_DID_PASSWORD
             server = self.MT5_DID_SERVER
@@ -67,7 +57,7 @@ class Config:
             server = self.MT5_DEMO_SERVER
             print(f"🔧 DEBUG: DEMO - Login: '{login}', Password: '{password}', Server: '{server}'")
         else:
-            raise ValueError(f"Type de compte non supporté: {account_type}")
+            raise ValueError(f"Type de compte non supporté: {account_type}. Comptes disponibles: DID, DEMO")
         
         # Conversion du login en entier si présent
         login_int = None
@@ -92,7 +82,7 @@ class Config:
     def get_telegram_credentials(self, account_type=None):
         """Retourne les identifiants Telegram selon le compte."""
         if account_type is None:
-            account_type = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "MAT")
+            account_type = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "DID")
         
         account_type = account_type.upper()
         

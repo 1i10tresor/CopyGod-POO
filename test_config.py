@@ -22,33 +22,18 @@ def test_configuration():
     errors = []
     warnings = []
     
-    # Test Telegram MAT
-    print("\n📱 Configuration Telegram MAT:")
-    mat_api_id = os.getenv("TELEGRAM_MAT_API_ID", "0")
-    mat_api_hash = os.getenv("TELEGRAM_MAT_API_HASH", "")
-    
-    if mat_api_id == "0" or not mat_api_id:
-        errors.append("TELEGRAM_MAT_API_ID non configuré")
-    else:
-        print(f"✅ MAT API_ID: {mat_api_id}")
-    
-    if not mat_api_hash:
-        errors.append("TELEGRAM_MAT_API_HASH non configuré")
-    else:
-        print(f"✅ MAT API_HASH: {mat_api_hash[:8]}...")
-    
     # Test Telegram DID
     print("\n📱 Configuration Telegram DID:")
     did_api_id = os.getenv("TELEGRAM_DID_API_ID", "0")
     did_api_hash = os.getenv("TELEGRAM_DID_API_HASH", "")
     
     if did_api_id == "0" or not did_api_id:
-        warnings.append("TELEGRAM_DID_API_ID non configuré")
+        errors.append("TELEGRAM_DID_API_ID non configuré")
     else:
         print(f"✅ DID API_ID: {did_api_id}")
     
     if not did_api_hash:
-        warnings.append("TELEGRAM_DID_API_HASH non configuré")
+        errors.append("TELEGRAM_DID_API_HASH non configuré")
     else:
         print(f"✅ DID API_HASH: {did_api_hash[:8]}...")
     
@@ -63,10 +48,9 @@ def test_configuration():
     else:
         print(f"✅ GPT_KEY: {gpt_key[:20]}...")
     
-    # Test MT5 Accounts avec les bons noms de variables
+    # Test MT5 Accounts - Seulement DID et DEMO
     print("\n📈 Configuration MT5:")
     accounts = [
-        ('MAT', 'MT5_MAT_LOGIN', 'MT5_MAT_MDP', 'MT5_MAT_SERVEUR'),
         ('DID', 'MT5_DID_LOGIN', 'MT5_DID_MDP', 'MT5_DID_SERVEUR'),
         ('DEMO', 'MT5_DEMO_LOGIN', 'MT5_DEMO_MDP', 'MT5_DEMO_SERVEUR')
     ]
@@ -113,7 +97,7 @@ def test_configuration():
     
     # Test compte actif
     print("\n⚙️ Configuration Active:")
-    telegram_active = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "MAT")
+    telegram_active = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "DID")
     mt5_active = os.getenv("MT5_ACTIVE_ACCOUNT", "DEMO")
     
     print(f"📱 Telegram actif: {telegram_active}")
@@ -152,8 +136,8 @@ if __name__ == "__main__":
     else:
         print("\n🔧 Corrigez d'abord les erreurs dans le fichier .env")
         print("\n💡 Vérifiez que votre fichier .env contient:")
-        print("   - TELEGRAM_MAT_API_ID=22757187")
-        print("   - TELEGRAM_MAT_API_HASH=4b8c65f754c80ee53a55c162d141042d")
+        print("   - TELEGRAM_DID_API_ID=26513066")
+        print("   - TELEGRAM_DID_API_HASH=6c3198f742f9f01de443990154353d95")
         print("   - MT5_DEMO_LOGIN=166552")
         print("   - MT5_DEMO_MDP=g:y2c4Ju89")
         print("   - MT5_DEMO_SERVEUR=FusionMarkets-Demo")
