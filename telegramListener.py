@@ -7,19 +7,20 @@ from riskManager import RiskManager
 import re
 
 class TradingBot:
-    def __init__(self, risk_per_signal_eur, account_type, telegram_account=None):
-        # Configuration Telegram
-        if telegram_account is None:
-            telegram_account = "DID"  # Par défaut DID au lieu de MAT
+    def __init__(self, risk_per_signal_eur, account_type):
+        print(f"🔧 DEBUG TradingBot: Initialisation avec account_type='{account_type}'")
         
-        telegram_creds = config.get_telegram_credentials(telegram_account)
+        # Configuration Telegram - Toujours DID
+        telegram_creds = config.get_telegram_credentials()
         self.api_id = telegram_creds['api_id']
         self.api_hash = telegram_creds['api_hash']
         self.session_name = telegram_creds['session_name']
-        self.telegram_account = telegram_account.upper()
+        
+        print(f"🔧 DEBUG TradingBot: Telegram credentials - API_ID: {self.api_id}, Session: {self.session_name}")
         
         # Configuration MT5
         self.account_type = account_type.upper()
+        print(f"🔧 DEBUG TradingBot: MT5 account_type défini sur '{self.account_type}'")
         
         # IDs des canaux
         self.channel_1_id = config.TELEGRAM_CHANNEL_1_ID
@@ -27,13 +28,14 @@ class TradingBot:
         
         # Composants
         self.client = None
-        self.order_sender = SendOrder(account_type)
+        print(f"🔧 DEBUG TradingBot: Création SendOrder avec account_type='{self.account_type}'")
+        self.order_sender = SendOrder(self.account_type)
         self.risk_manager = RiskManager(risk_per_signal_eur)
         
     async def start(self):
         """Démarre le bot."""
         print(f"🚀 Démarrage du bot...")
-        print(f"📱 Telegram: Compte {self.telegram_account}")
+        print(f"📱 Telegram: Compte DID")
         print(f"📈 MT5: Compte {self.account_type}")
         
         # Connexion Telegram
@@ -45,7 +47,7 @@ class TradingBot:
             return False
         
         me = await self.client.get_me()
-        print(f"✅ Connecté Telegram: {me.first_name} (Compte {self.telegram_account})")
+        print(f"✅ Connecté Telegram: {me.first_name}")
         
         # Vérifier MT5
         if not self.order_sender.is_connected:
@@ -78,7 +80,7 @@ class TradingBot:
             print(f"\n📨 Message Canal {channel_id}: {message_text[:50]}...")
             await self.process_message(message_text, channel_id)
         
-        print(f"🎧 Écoute active sur {self.telegram_account} → {self.account_type}...")
+        print(f"🎧 Écoute active sur DID → {self.account_type}...")
         return True
     
     async def process_message(self, message_text, channel_id):
@@ -188,7 +190,7 @@ class TradingBot:
         """Lance le bot."""
         if await self.start():
             try:
-                print(f"💡 Bot actif ({self.telegram_account} → {self.account_type})... Ctrl+C pour arrêter")
+                print(f"💡 Bot actif (DID → {self.account_type})... Ctrl+C pour arrêter")
                 await self.client.run_until_disconnected()
             except KeyboardInterrupt:
                 print("\n⏹️ Arrêt du bot")
@@ -213,26 +215,6 @@ def get_account_selection():
                 return 'DEMO'
             else:
                 print("❌ Choix invalide. Veuillez entrer 1 ou 2")
-                
-        except KeyboardInterrupt:
-            print("\n❌ Annulé")
-            exit()
-
-def get_telegram_account_selection():
-    """Demande le choix du compte Telegram à l'utilisateur."""
-    print("\n📱 SÉLECTION DU COMPTE TELEGRAM")
-    print("=" * 35)
-    print("1. DID   - Compte Telegram DID")
-    print("=" * 35)
-    
-    while True:
-        try:
-            choice = input("Choisir le compte Telegram (1): ").strip()
-            
-            if choice == '1' or choice == '':
-                return 'DID'
-            else:
-                print("❌ Choix invalide. Veuillez entrer 1")
                 
         except KeyboardInterrupt:
             print("\n❌ Annulé")
@@ -266,11 +248,7 @@ async def main():
     print("🤖 SYSTÈME DE TRADING TELEGRAM")
     print("=" * 40)
     
-    # Sélection du compte Telegram
-    telegram_account = get_telegram_account_selection()
-    print(f"✅ Compte Telegram sélectionné: {telegram_account}")
-    
-    # Sélection du compte MT5
+    # Sélection du compte MT5 seulement
     mt5_account = get_account_selection()
     print(f"✅ Compte MT5 sélectionné: {mt5_account}")
     
@@ -278,7 +256,7 @@ async def main():
     risk_per_signal = get_risk_input()
     
     print(f"\n✅ Configuration:")
-    print(f"📱 Telegram: {telegram_account}")
+    print(f"📱 Telegram: DID (fixe)")
     print(f"📈 MT5: {mt5_account}")
     print(f"💰 Risque: {risk_per_signal}€ par signal")
     print(f"📊 Répartition: {risk_per_signal/3:.2f}€ par position")
@@ -287,14 +265,14 @@ async def main():
     
     # Confirmation finale
     print(f"\n⚠️ Les ordres seront passés sur le compte MT5 {mt5_account}")
-    print(f"⚠️ En utilisant le compte Telegram {telegram_account}")
+    print(f"⚠️ En utilisant le compte Telegram DID")
     confirm = input("Continuer ? (oui/non): ").lower().strip()
     if confirm not in ['oui', 'o', 'yes', 'y']:
         print("❌ Lancement annulé")
         return
     
     # Lancer le bot
-    bot = TradingBot(risk_per_signal, mt5_account, telegram_account)
+    bot = TradingBot(risk_per_signal, mt5_account)
     await bot.run()
 
 if __name__ == "__main__":

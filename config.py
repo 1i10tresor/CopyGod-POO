@@ -4,21 +4,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    # Telegram - Configuration dynamique selon le compte actif
+    # Telegram - Configuration pour DID uniquement
     @property
     def TELEGRAM_API_ID(self):
-        active_account = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "DID")
-        return int(os.getenv(f"TELEGRAM_{active_account}_API_ID", "0"))
+        return int(os.getenv("TELEGRAM_DID_API_ID", "0"))
     
     @property
     def TELEGRAM_API_HASH(self):
-        active_account = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "DID")
-        return os.getenv(f"TELEGRAM_{active_account}_API_HASH", "")
+        return os.getenv("TELEGRAM_DID_API_HASH", "")
     
     @property
     def TELEGRAM_SESSION_NAME(self):
-        active_account = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "DID")
-        return os.getenv(f"TELEGRAM_{active_account}_SESSION", f"{active_account}.session")
+        return os.getenv("TELEGRAM_DID_SESSION", "DID.session")
     
     # Trading
     TOTAL_RISK_EUR = float(os.getenv("TOTAL_RISK_EUR", "45.0"))
@@ -44,31 +41,36 @@ class Config:
         """Retourne les identifiants MT5 selon le type de compte."""
         account_type = account_type.upper()
         
-        print(f"🔧 DEBUG: get_mt5_credentials appelé pour {account_type}")
+        print(f"🔧 DEBUG Config: get_mt5_credentials appelé pour '{account_type}'")
+        print(f"🔧 DEBUG Config: Attributs disponibles: {[attr for attr in dir(self) if 'MT5' in attr]}")
         
         if account_type == 'DID':
+            print(f"🔧 DEBUG Config: Récupération credentials DID...")
             login = self.MT5_DID_LOGIN
             password = self.MT5_DID_PASSWORD
             server = self.MT5_DID_SERVER
-            print(f"🔧 DEBUG: DID - Login: '{login}', Password: '{password}', Server: '{server}'")
+            print(f"🔧 DEBUG Config: DID - Login: '{login}', Password: '{password}', Server: '{server}'")
         elif account_type == 'DEMO':
+            print(f"🔧 DEBUG Config: Récupération credentials DEMO...")
             login = self.MT5_DEMO_LOGIN
             password = self.MT5_DEMO_PASSWORD
             server = self.MT5_DEMO_SERVER
-            print(f"🔧 DEBUG: DEMO - Login: '{login}', Password: '{password}', Server: '{server}'")
+            print(f"🔧 DEBUG Config: DEMO - Login: '{login}', Password: '{password}', Server: '{server}'")
         else:
-            raise ValueError(f"Type de compte non supporté: {account_type}. Comptes disponibles: DID, DEMO")
+            error_msg = f"Type de compte non supporté: {account_type}. Comptes disponibles: DID, DEMO"
+            print(f"❌ DEBUG Config: {error_msg}")
+            raise ValueError(error_msg)
         
         # Conversion du login en entier si présent
         login_int = None
         if login:
             try:
                 login_int = int(login)
-                print(f"🔧 DEBUG: Login converti en int: {login_int}")
+                print(f"🔧 DEBUG Config: Login converti en int: {login_int}")
             except ValueError:
-                print(f"❌ DEBUG: Impossible de convertir le login '{login}' en entier")
+                print(f"❌ DEBUG Config: Impossible de convertir le login '{login}' en entier")
         else:
-            print(f"❌ DEBUG: Login vide pour {account_type}")
+            print(f"❌ DEBUG Config: Login vide pour {account_type}")
         
         result = {
             'login': login_int,
@@ -76,20 +78,18 @@ class Config:
             'server': server
         }
         
-        print(f"🔧 DEBUG: Credentials finaux pour {account_type}: {result}")
+        print(f"🔧 DEBUG Config: Credentials finaux pour {account_type}: {result}")
         return result
     
     def get_telegram_credentials(self, account_type=None):
-        """Retourne les identifiants Telegram selon le compte."""
-        if account_type is None:
-            account_type = os.getenv("TELEGRAM_ACTIVE_ACCOUNT", "DID")
+        """Retourne les identifiants Telegram pour DID."""
+        print(f"🔧 DEBUG Config: get_telegram_credentials appelé avec account_type='{account_type}'")
         
-        account_type = account_type.upper()
-        
+        # Toujours utiliser DID
         return {
-            'api_id': int(os.getenv(f"TELEGRAM_{account_type}_API_ID", "0")),
-            'api_hash': os.getenv(f"TELEGRAM_{account_type}_API_HASH", ""),
-            'session_name': os.getenv(f"TELEGRAM_{account_type}_SESSION", f"{account_type}.session")
+            'api_id': int(os.getenv("TELEGRAM_DID_API_ID", "0")),
+            'api_hash': os.getenv("TELEGRAM_DID_API_HASH", ""),
+            'session_name': os.getenv("TELEGRAM_DID_SESSION", "DID.session")
         }
 
 # Instance globale
