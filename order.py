@@ -9,6 +9,8 @@ class SendOrder:
         self.is_connected = False
         self.current_login = None
         print(f"🔧 DEBUG: Initialisation SendOrder pour compte {self.account_type}")
+        print(f"🔧 DEBUG: Type de self.account_type: {type(self.account_type)}")
+        print(f"🔧 DEBUG: Valeur de self.account_type: '{self.account_type}'")
         self._initialize_mt5()
     
     def _initialize_mt5(self):
@@ -28,8 +30,15 @@ class SendOrder:
             
             # DEBUG: Obtenir les identifiants
             print(f"🔧 DEBUG: Récupération des identifiants pour {self.account_type}...")
+            print(f"🔧 DEBUG: Appel de config.get_mt5_credentials('{self.account_type}')")
+            
+            # Vérifier que config existe et a la méthode
+            print(f"🔧 DEBUG: Type de config: {type(config)}")
+            print(f"🔧 DEBUG: Attributs de config: {dir(config)}")
+            
             credentials = config.get_mt5_credentials(self.account_type)
             print(f"🔧 DEBUG: Credentials reçus: {credentials}")
+            print(f"🔧 DEBUG: Type de credentials: {type(credentials)}")
             
             if not credentials['login']:
                 print(f"❌ DEBUG: Login manquant pour {self.account_type}")
@@ -89,11 +98,18 @@ class SendOrder:
             print(f"✅ Connexion MT5 établie sur le compte {self.account_type} (Login: {self.current_login})")
             return True
             
+        except AttributeError as e:
+            print(f"❌ Erreur d'attribut lors de l'initialisation MT5: {e}")
+            print(f"🔧 DEBUG: AttributeError détaillée: {type(e).__name__}: {str(e)}")
+            print(f"🔧 DEBUG: L'erreur concerne probablement un attribut manquant dans la classe Config")
+            import traceback
+            print(f"🔧 DEBUG: Traceback AttributeError: {traceback.format_exc()}")
+            return False
         except Exception as e:
             print(f"❌ Erreur initialisation MT5: {e}")
-            print(f"🔧 DEBUG: Exception détaillée: {type(e).__name__}: {str(e)}")
+            print(f"🔧 DEBUG: Exception générale détaillée: {type(e).__name__}: {str(e)}")
             import traceback
-            print(f"🔧 DEBUG: Traceback: {traceback.format_exc()}")
+            print(f"🔧 DEBUG: Traceback général: {traceback.format_exc()}")
             return False
     
     def _verify_account(self):
