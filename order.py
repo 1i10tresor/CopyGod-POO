@@ -8,9 +8,15 @@ class SendOrder:
         self.account_type = account_type.upper()
         self.is_connected = False
         self.current_login = None
-        print(f"🔧 DEBUG: Initialisation SendOrder pour compte {self.account_type}")
-        print(f"🔧 DEBUG: Type de self.account_type: {type(self.account_type)}")
-        print(f"🔧 DEBUG: Valeur de self.account_type: '{self.account_type}'")
+        print(f"🔧 DEBUG SendOrder: Initialisation pour compte {self.account_type}")
+        print(f"🔧 DEBUG SendOrder: Type de self.account_type: {type(self.account_type)}")
+        print(f"🔧 DEBUG SendOrder: Valeur de self.account_type: '{self.account_type}'")
+        
+        # Vérifier que config est bien importé
+        print(f"🔧 DEBUG SendOrder: Type de config: {type(config)}")
+        print(f"🔧 DEBUG SendOrder: config.__class__.__name__: {config.__class__.__name__}")
+        print(f"🔧 DEBUG SendOrder: Attributs de config contenant MT5: {[attr for attr in dir(config) if 'MT5' in attr]}")
+        
         self._initialize_mt5()
     
     def _initialize_mt5(self):
@@ -34,11 +40,34 @@ class SendOrder:
             
             # Vérifier que config existe et a la méthode
             print(f"🔧 DEBUG: Type de config: {type(config)}")
-            print(f"🔧 DEBUG: Attributs de config: {dir(config)}")
+            print(f"🔧 DEBUG: Méthodes de config: {[method for method in dir(config) if not method.startswith('_')]}")
             
-            credentials = config.get_mt5_credentials(self.account_type)
-            print(f"🔧 DEBUG: Credentials reçus: {credentials}")
-            print(f"🔧 DEBUG: Type de credentials: {type(credentials)}")
+            # Vérifier si get_mt5_credentials existe
+            if hasattr(config, 'get_mt5_credentials'):
+                print("✅ DEBUG: config.get_mt5_credentials existe")
+            else:
+                print("❌ DEBUG: config.get_mt5_credentials n'existe PAS!")
+                return False
+            
+            # Appel de la méthode avec gestion d'erreur spécifique
+            try:
+                print(f"🔧 DEBUG: Appel effectif de get_mt5_credentials('{self.account_type}')")
+                credentials = config.get_mt5_credentials(self.account_type)
+                print(f"🔧 DEBUG: Credentials reçus: {credentials}")
+                print(f"🔧 DEBUG: Type de credentials: {type(credentials)}")
+            except AttributeError as attr_error:
+                print(f"❌ DEBUG: AttributeError dans get_mt5_credentials: {attr_error}")
+                print(f"🔧 DEBUG: L'erreur AttributeError vient de get_mt5_credentials")
+                import traceback
+                print(f"🔧 DEBUG: Traceback AttributeError get_mt5_credentials:")
+                traceback.print_exc()
+                return False
+            except Exception as get_cred_error:
+                print(f"❌ DEBUG: Autre erreur dans get_mt5_credentials: {get_cred_error}")
+                import traceback
+                print(f"🔧 DEBUG: Traceback get_mt5_credentials:")
+                traceback.print_exc()
+                return False
             
             if not credentials['login']:
                 print(f"❌ DEBUG: Login manquant pour {self.account_type}")
@@ -103,13 +132,15 @@ class SendOrder:
             print(f"🔧 DEBUG: AttributeError détaillée: {type(e).__name__}: {str(e)}")
             print(f"🔧 DEBUG: L'erreur concerne probablement un attribut manquant dans la classe Config")
             import traceback
-            print(f"🔧 DEBUG: Traceback AttributeError: {traceback.format_exc()}")
+            print(f"🔧 DEBUG: Traceback AttributeError complet:")
+            traceback.print_exc()
             return False
         except Exception as e:
             print(f"❌ Erreur initialisation MT5: {e}")
             print(f"🔧 DEBUG: Exception générale détaillée: {type(e).__name__}: {str(e)}")
             import traceback
-            print(f"🔧 DEBUG: Traceback général: {traceback.format_exc()}")
+            print(f"🔧 DEBUG: Traceback général complet:")
+            traceback.print_exc()
             return False
     
     def _verify_account(self):
